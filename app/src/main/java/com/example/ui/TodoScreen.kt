@@ -3099,57 +3099,96 @@ fun openExternalMap(
     label: String,
     mapType: String // "default", "amap", "baidu", "tencent", "google"
 ) {
+    if ((latitude == 0.0 && longitude == 0.0) || latitude.isNaN() || longitude.isNaN()) {
+        Toast.makeText(context, "【错误】位置经纬度无效: ($latitude, $longitude)", Toast.LENGTH_LONG).show()
+        return
+    }
+
+    val labelEncoded = Uri.encode(label)
+    val mapName = when (mapType) {
+        "amap" -> "高德地图"
+        "baidu" -> "百度地图"
+        "tencent" -> "腾讯地图"
+        "google" -> "Google 地图"
+        else -> "系统默认地图"
+    }
+
+    Toast.makeText(context, "【1】准备启动${mapName}\n经度:$longitude, 纬度:$latitude", Toast.LENGTH_LONG).show()
+
+    // Define App Intents
+    val appIntent = when (mapType) {
+        "amap" -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://viewMap?sourceApplication=TodoApp&poiname=$labelEncoded&lat=$latitude&lon=$longitude&dev=0")).apply {
+                setPackage("com.autonavi.minimap")
+            }
+        }
+        "baidu" -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("bdapp://map/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&src=andr.baidu.todo&coord_type=gcj02")).apply {
+                setPackage("com.baidu.BaiduMap")
+            }
+        }
+        "tencent" -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp")).apply {
+                setPackage("com.tencent.map")
+            }
+        }
+        "google" -> {
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$latitude,$longitude($labelEncoded)")).apply {
+                setPackage("com.google.android.apps.maps")
+            }
+        }
+        else -> { // "default"
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude($labelEncoded)"))
+        }
+    }
+    appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+    // Define Web Fallbacks
+    val webFallbackUrl = when (mapType) {
+        "amap" -> "https://uri.amap.com/marker?position=$longitude,$latitude&name=$labelEncoded"
+        "baidu" -> "https://api.map.baidu.com/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&output=html"
+        "tencent" -> "https://apis.map.qq.com/uri/v1/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp"
+        "google" -> "https://www.google.com/maps/search/?api=1&query=$latitude,$longitude"
+        else -> "https://uri.amap.com/marker?position=$longitude,$latitude&name=$labelEncoded" // Fallback to Gaode web map in China
+    }
+
     try {
-        val intent = when (mapType) {
-            "amap" -> {
-                val uriString = "androidamap://viewMap?sourceApplication=TodoApp&poiname=" + Uri.encode(label) + "&lat=" + latitude + "&lon=" + longitude + "&dev=0"
-                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
-                    setPackage("com.autonavi.minimap")
-                }
-            }
-            "baidu" -> {
-                val uriString = "baidumap://map/marker?location=" + latitude + "," + longitude + "&title=" + Uri.encode(label) + "&content=" + Uri.encode(label) + "&src=andr.baidu.todo"
-                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
-                    setPackage("com.baidu.BaiduMap")
-                }
-            }
-            "tencent" -> {
-                val uriString = "qqmap://map/marker?marker=coord:" + latitude + "," + longitude + ";title:" + Uri.encode(label) + "&referer=TodoApp"
-                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
-                    setPackage("com.tencent.map")
-                }
-            }
-            "google" -> {
-                val uriString = "geo:0,0?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
-                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
-                    setPackage("com.google.android.apps.maps")
-                }
-            }
-            else -> { // "default"
-                val uriString = "geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
-                Intent(Intent.ACTION_VIEW, Uri.parse(uriString))
-            }
-        }
-        context.startActivity(intent)
+        context.startActivity(appIntent)
+        Toast.makeText(context, "【成功】通过指定App包名成功拉起!", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
-        val appName = when (mapType) {
-            "amap" -> "高德地图"
-            "baidu" -> "百度地图"
-            "tencent" -> "腾讯地图"
-            "google" -> "Google 地图"
-            else -> "系统默认地图"
-        }
-        if (mapType != "default") {
-            try {
-                Toast.makeText(context, "未检测到 " + appName + "，已切换至系统默认地图", Toast.LENGTH_SHORT).show()
-                val uriString = "geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
-                val defaultIntent = Intent(Intent.ACTION_VIEW, Uri.parse(uriString))
-                context.startActivity(defaultIntent)
-            } catch (ex: Exception) {
-                Toast.makeText(context, "您的手机上未安装任何地图应用", Toast.LENGTH_SHORT).show()
+        android.util.Log.e("TodoAppMap", "Failed to launch main map intent: ${e.message}", e)
+        Toast.makeText(context, "【提示】包名拉起失败: ${e.javaClass.simpleName} (${e.message})，将尝试万能协议...", Toast.LENGTH_SHORT).show()
+        // App launch failed (e.g. not installed or package restricted). Try raw custom scheme fallback (some custom ROMs match this)
+        try {
+            val fallbackSchemeIntent = when (mapType) {
+                "amap" -> Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://viewMap?sourceApplication=TodoApp&poiname=$labelEncoded&lat=$latitude&lon=$longitude&dev=0"))
+                "baidu" -> Intent(Intent.ACTION_VIEW, Uri.parse("bdapp://map/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&src=andr.baidu.todo&coord_type=gcj02"))
+                "tencent" -> Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp"))
+                "google" -> Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$latitude,$longitude($labelEncoded)"))
+                else -> null
             }
-        } else {
-            Toast.makeText(context, "您的手机上未安装任何地图应用", Toast.LENGTH_SHORT).show()
+            if (fallbackSchemeIntent != null) {
+                fallbackSchemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(fallbackSchemeIntent)
+                Toast.makeText(context, "【成功】通过万能协议（不限包名）成功拉起!", Toast.LENGTH_SHORT).show()
+            } else {
+                throw e
+            }
+        } catch (ex2: Exception) {
+            android.util.Log.e("TodoAppMap", "Failed to launch fallback scheme: ${ex2.message}", ex2)
+            Toast.makeText(context, "【提示】万能协议也失败: ${ex2.javaClass.simpleName} (${ex2.message})，切换到网页版浏览器...", Toast.LENGTH_SHORT).show()
+            // App & scheme launch failed. Fallback to web map in browser!
+            try {
+                Toast.makeText(context, "【正在打开网页】URL: $webFallbackUrl", Toast.LENGTH_LONG).show()
+                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webFallbackUrl)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(webIntent)
+                Toast.makeText(context, "【成功】已成功向系统发送打开浏览器网页请求!", Toast.LENGTH_SHORT).show()
+            } catch (exWeb: Exception) {
+                android.util.Log.e("TodoAppMap", "Failed to launch web browser fallback: ${exWeb.message}", exWeb)
+                Toast.makeText(context, "【严重错误】所有拉起方式和网页浏览器均失败:\n${exWeb.localizedMessage}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

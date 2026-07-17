@@ -514,7 +514,7 @@ fun PlanSectionCard(
                 OutlinedTextField(
                     value = newPlanText,
                     onValueChange = { newPlanText = it },
-                    placeholder = { Text("添加新计划...", fontSize = 12.sp) },
+                    placeholder = { Text("添加新计划...", fontSize = 13.sp) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = {
@@ -531,12 +531,11 @@ fun PlanSectionCard(
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
                     ),
                     modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp),
+                        .weight(1f),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
                 )
 
-                IconButton(
+                FilledIconButton(
                     onClick = {
                         if (newPlanText.isNotBlank()) {
                             onAddPlan(newPlanText)
@@ -544,14 +543,18 @@ fun PlanSectionCard(
                         }
                     },
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(10.dp)),
-                    colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onPrimary)
+                        .size(48.dp)
+                        .testTag("add_segmented_plan_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "添加",
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
