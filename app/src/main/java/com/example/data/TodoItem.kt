@@ -13,5 +13,9 @@ data class TodoItem(
     val isCompleted: Boolean = false,
     val isImportant: Boolean = false,
     val calendarEventId: Long? = null,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val locationName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val imageUrl: String? = null
 )

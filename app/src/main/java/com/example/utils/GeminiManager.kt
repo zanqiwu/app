@@ -53,7 +53,64 @@ data class GeneratedTodoItem(
     val title: String,
     val description: String = "",
     val category: String,
-    val isImportant: Boolean = false
+    val isImportant: Boolean = false,
+    val locationName: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val imageUrl: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedAction(
+    val type: String, // "center_map" or "generate_image" or "add_marker"
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val zoom: Int? = null,
+    val address: String? = null,
+    val prompt: String? = null,
+    val targetTaskTitle: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedPlanningResponse(
+    val todoItems: List<GeneratedTodoItem>,
+    val actions: List<GeneratedAction> = emptyList()
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedShape(
+    val type: String, // "circle", "rect", "triangle", "star"
+    val x: Float, // percentage of canvas (0 to 100)
+    val y: Float, // percentage of canvas (0 to 100)
+    val size: Float, // size percentage (5 to 80)
+    val color: String, // hex color like "#FF1E88E5"
+    val alpha: Float, // opacity (0.1 to 1.0)
+    val rotation: Float = 0f // degrees
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedImageArt(
+    val prompt: String,
+    val style: String,
+    val primaryColor: String, // hex
+    val secondaryColor: String, // hex
+    val shapes: List<GeneratedShape>
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedNote(
+    val pitch: String, // e.g., "C4", "E4", "G4", "A4", "C5", "D5"
+    val durationMs: Int // duration in milliseconds (e.g. 300, 500, 1000)
+)
+
+@JsonClass(generateAdapter = true)
+data class GeneratedSong(
+    val title: String,
+    val lyrics: List<String>, // Each line of lyrics
+    val style: String, // e.g., "民谣", "合成器流行", "极简古典"
+    val tempoBpm: Int, // bpm (e.g. 80, 100, 120)
+    val chords: List<String>, // e.g. ["C", "G", "Am", "F"]
+    val notes: List<GeneratedNote> // sequence of melody notes for play
 )
 
 interface GeminiApiService {
@@ -83,30 +140,94 @@ object GeminiManager {
 
     val apiService: GeminiApiService = retrofit.create(GeminiApiService::class.java)
 
-    suspend fun generateTodoItems(prompt: String): List<GeneratedTodoItem> {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
-            throw IllegalStateException("API Key is missing or default. Please configure GEMINI_API_KEY in your Secrets panel.")
+    private var customApiKey: String? = null
+
+    fun getApiKey(context: android.content.Context): String {
+        if (customApiKey == null) {
+            val prefs = context.getSharedPreferences("todo_settings", android.content.Context.MODE_PRIVATE)
+            customApiKey = prefs.getString("gemini_api_key", "")
+        }
+        val key = customApiKey ?: ""
+        if (key.isNotEmpty()) return key
+        // Safely check if BuildConfig has a real value
+        val buildConfigKey = try {
+            BuildConfig.GEMINI_API_KEY
+        } catch (e: Exception) {
+            ""
+        }
+        if (buildConfigKey.isNotEmpty() && buildConfigKey != "MY_GEMINI_API_KEY") {
+            return buildConfigKey
+        }
+        return ""
+    }
+
+    fun saveApiKey(context: android.content.Context, key: String) {
+        customApiKey = key
+        val prefs = context.getSharedPreferences("todo_settings", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("gemini_api_key", key).apply()
+    }
+
+    suspend fun generateTodoItems(context: android.content.Context, prompt: String): GeneratedPlanningResponse {
+        val apiKey = getApiKey(context)
+        if (apiKey.isEmpty()) {
+            throw IllegalStateException("API Key is missing. Please configure your Gemini API Key in the settings at the top.")
         }
 
         val systemPrompt = """
-            You are a smart Todo Assistant. Based on the user's input/goal, break it down into a list of realistic, actionable todo items.
-            You MUST return a JSON array of objects.
-            Each object in the array MUST strictly have these fields:
-            1. "title": A short, clear task title (in Chinese).
-            2. "description": A short explanation or step description (in Chinese).
-            3. "category": Must be exactly one of: "工作", "学习", "生活", "健康", "购物", "个人".
-            4. "isImportant": A boolean value indicating if this task is highly important or urgent.
+            You are a smart Todo and Location Assistant with function-calling capabilities. Based on the user's input/goal, you MUST perform two core responsibilities:
+            1. Break the goal down into a list of realistic, actionable todo items (todoItems).
+            2. Decide if any interactive tools (actions) should be called to assist the user on their map, or to draw illustrative cards.
 
-            Example format:
-            [
-              {
-                "title": "购买露营帐篷",
-                "description": "选择双人防雨帐篷，去购物平台比价",
-                "category": "购物",
-                "isImportant": true
-              }
-            ]
+            You MUST return a single JSON object with these exact fields:
+            - "todoItems": A JSON array of objects. Each object in the array MUST strictly have:
+              1. "title": A short, clear task title (in Chinese).
+              2. "description": A short explanation or step description (in Chinese).
+              3. "category": Must be exactly one of: "工作", "学习", "生活", "健康", "购物", "个人".
+              4. "isImportant": A boolean indicating if this task is highly important or urgent.
+              5. "locationName": (Optional) If the task is related to a physical location, destination, scenic spot, city, restaurant, or business, provide the specific Chinese address or place name (e.g., "杭州西湖", "北京天安门", "宜家家居(上海徐汇店)", "星巴克咖啡厅"). Otherwise, return null.
+              6. "latitude": (Optional) If locationName is provided, output a highly realistic Double coordinate representing its latitude (e.g. 30.25). Otherwise, return null.
+              7. "longitude": (Optional) If locationName is provided, output a highly realistic Double coordinate representing its longitude (e.g. 120.15). Otherwise, return null.
+              8. "imageUrl": (Optional) If the task is related to travel, an activity, or is highly visual, construct a URL calling the nanobanana image generation service to illustrate this task.
+                 The format MUST be: https://api.nanobanana.im/image?prompt=<url_encoded_prompt_in_english>&width=512&height=512
+                 For example: https://api.nanobanana.im/image?prompt=beautiful+vector+flat+illustration+of+hangzhou+west+lake+walking&width=512&height=512
+                 Otherwise, return null.
+
+            - "actions": A JSON array of tool actions to call. Supported tools:
+              A. "center_map": Center the interactive map on the primary location of the plan.
+                 Format: {"type": "center_map", "latitude": Double, "longitude": Double, "zoom": 13, "address": "Place Name"}
+              B. "generate_image": Call the nanobanana service to render a cover image for a specific task.
+                 Format: {"type": "generate_image", "prompt": "Prompt for image in English", "targetTaskTitle": "Task Title"}
+
+            Example response:
+            {
+              "todoItems": [
+                {
+                  "title": "到杭州西湖漫步",
+                  "description": "欣赏断桥残雪及湖光山色，建议下午4点出发",
+                  "category": "生活",
+                  "isImportant": true,
+                  "locationName": "杭州西湖",
+                  "latitude": 30.2452,
+                  "longitude": 120.1419,
+                  "imageUrl": "https://api.nanobanana.im/image?prompt=beautiful+flat+vector+illustration+of+hangzhou+west+lake+lakefront&width=512&height=512"
+                }
+              ],
+              "actions": [
+                {
+                  "type": "center_map",
+                  "latitude": 30.2452,
+                  "longitude": 120.1419,
+                  "zoom": 13,
+                  "address": "杭州西湖"
+                },
+                {
+                  "type": "generate_image",
+                  "prompt": "beautiful flat vector illustration of hangzhou west lake lakefront",
+                  "targetTaskTitle": "到杭州西湖漫步"
+                }
+              ]
+            }
+
             Do not include any Markdown block backticks, just the raw JSON.
         """.trimIndent()
 
@@ -123,9 +244,93 @@ object GeminiManager {
         val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
             ?: throw IllegalStateException("AI returned an empty response.")
 
-        // Parse the generated JSON list
-        val listType = Types.newParameterizedType(List::class.java, GeneratedTodoItem::class.java)
-        val adapter = moshi.adapter<List<GeneratedTodoItem>>(listType)
-        return adapter.fromJson(text) ?: emptyList()
+        val adapter = moshi.adapter(GeneratedPlanningResponse::class.java)
+        return adapter.fromJson(text) ?: GeneratedPlanningResponse(emptyList())
+    }
+
+    suspend fun generateImageArt(context: android.content.Context, prompt: String): GeneratedImageArt {
+        val apiKey = getApiKey(context)
+        if (apiKey.isEmpty()) {
+            throw IllegalStateException("API Key is missing. Please configure your Gemini API Key in the settings at the top.")
+        }
+
+        val systemPrompt = """
+            You are a Creative AI Digital Artist. Based on the user's prompt, design a beautiful, abstract generative art piece.
+            You MUST return a JSON object representing the art styling and geometric shapes to render on a digital canvas.
+            Return a JSON object strictly with these fields:
+            1. "prompt": The original user prompt (in Chinese).
+            2. "style": A descriptive art style (e.g. "Futuristic Vaporwave", "Minimalist Zen", "Cosmic Cyberpunk", "Pastel Dreamland", "Warm Autumn").
+            3. "primaryColor": A hex color string starting with #FF representing the background/main mood (e.g., "#FF1A1A2E").
+            4. "secondaryColor": A hex color string starting with #FF representing the secondary ambient mood (e.g., "#FF16213E").
+            5. "shapes": A JSON array of 15 to 25 shape objects to draw on the canvas.
+            Each shape object MUST have:
+            - "type": One of "circle", "rect", "triangle", "star".
+            - "x": Float representing horizontal center position percentage (0 to 100).
+            - "y": Float representing vertical center position percentage (0 to 100).
+            - "size": Float representing size percentage of the canvas (5 to 40).
+            - "color": A hex color string starting with #FF (e.g. "#FFFF7675", "#FF74B9FF").
+            - "alpha": Float representing transparency (0.2 to 0.9).
+            - "rotation": Float representing rotation angle in degrees (0 to 360).
+
+            Design a cohesive color palette that perfectly fits the mood of the prompt.
+            Do not include any Markdown block backticks, just the raw JSON.
+        """.trimIndent()
+
+        val request = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            generationConfig = GeminiGenerationConfig(
+                responseMimeType = "application/json",
+                temperature = 0.7f
+            ),
+            systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt)))
+        )
+
+        val response = apiService.generateContent(apiKey, request)
+        val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?: throw IllegalStateException("AI returned an empty response.")
+
+        val adapter = moshi.adapter(GeneratedImageArt::class.java)
+        return adapter.fromJson(text) ?: throw IllegalStateException("Failed to parse visual art JSON")
+    }
+
+    suspend fun generateSong(context: android.content.Context, prompt: String): GeneratedSong {
+        val apiKey = getApiKey(context)
+        if (apiKey.isEmpty()) {
+            throw IllegalStateException("API Key is missing. Please configure your Gemini API Key in the settings at the top.")
+        }
+
+        val systemPrompt = """
+            You are a Creative AI Songwriter and Musician. Based on the user's prompt, write a custom song and structure its musical notes.
+            You MUST return a JSON object representing the song title, lyrics, tempo, chords, and melody notes for playing on a custom synthesizer.
+            The notes list will play sequentially. Map pitches to standard notes: "C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5", "G5", "A5".
+            
+            Return a JSON object strictly with these fields:
+            1. "title": A creative song title (in Chinese).
+            2. "lyrics": A JSON array of 4 to 6 lines of beautifully written Chinese lyrics.
+            3. "style": One of "民谣", "合成器流行", "极简古典", "环境音乐".
+            4. "tempoBpm": An integer from 70 to 120.
+            5. "chords": A JSON array of 4 chord names (e.g., ["C", "G", "Am", "F"] or ["Am", "Dm", "G", "C"]).
+            6. "notes": A JSON array of 12 to 24 melody note objects that play sequentially. Each note object MUST have:
+               - "pitch": A pitch name from: "C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5", "D5", "E5", "G5", "A5".
+               - "durationMs": Integer duration in milliseconds (300 to 1000).
+
+            Keep the melody beautiful and harmonic. Do not include any Markdown block backticks, just the raw JSON.
+        """.trimIndent()
+
+        val request = GeminiRequest(
+            contents = listOf(GeminiContent(parts = listOf(GeminiPart(text = prompt)))),
+            generationConfig = GeminiGenerationConfig(
+                responseMimeType = "application/json",
+                temperature = 0.7f
+            ),
+            systemInstruction = GeminiContent(parts = listOf(GeminiPart(text = systemPrompt)))
+        )
+
+        val response = apiService.generateContent(apiKey, request)
+        val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            ?: throw IllegalStateException("AI returned an empty response.")
+
+        val adapter = moshi.adapter(GeneratedSong::class.java)
+        return adapter.fromJson(text) ?: throw IllegalStateException("Failed to parse song JSON")
     }
 }

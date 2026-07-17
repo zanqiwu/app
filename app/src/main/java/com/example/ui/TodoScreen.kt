@@ -2,6 +2,8 @@ package com.example.ui
 
 import android.app.DatePickerDialog
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,6 +40,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TodoItem
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -55,6 +60,10 @@ fun TodoScreen(
     var showAddSheet by remember { mutableStateOf(false) }
     var showAiAssistant by remember { mutableStateOf(false) }
     var editingItem by remember { mutableStateOf<TodoItem?>(null) }
+    var isMapMode by remember { mutableStateOf(false) }
+    var mapSelectedItemId by remember { mutableStateOf<Int?>(null) }
+    var mapCenterLat by remember { mutableStateOf(30.25) }
+    var mapCenterLng by remember { mutableStateOf(120.15) }
 
     val context = LocalContext.current
     val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
@@ -114,6 +123,35 @@ fun TodoScreen(
                                 Text(
                                     text = "AI 规划",
                                     color = Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            // 地图模式 Toggle Button
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(
+                                        if (isMapMode) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    )
+                                    .clickable { isMapMode = !isMapMode }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isMapMode) Icons.Default.List else Icons.Default.Map,
+                                    contentDescription = "地图模式",
+                                    tint = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(13.dp)
+                                )
+                                Text(
+                                    text = if (isMapMode) "列表" else "地图",
+                                    color = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -278,35 +316,275 @@ fun TodoScreen(
                 }
             }
 
-            // Todo List Core
-            if (items.isEmpty()) {
-                EmptyStateView(
-                    isFiltering = selectedFilter != "全部" || searchQuery.isNotEmpty(),
-                    onClearFilters = {
-                        viewModel.setCategoryFilter("全部")
-                        viewModel.setSearchQuery("")
+            // Todo List Core or Map View
+            if (isMapMode) {
+                val itemsWithLocation = remember(items) { items.filter { it.latitude != null && it.longitude != null } }
+                if (itemsWithLocation.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)
+                            ),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOff,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "暂无位置标记的待办",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "在地图模式下，所有带有定位的任务将显示在地图上。编辑任务添加一个物理地址，或者直接在 AI 规划中让 AI 助理自动生成带有物理坐标的位置吧！",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        editingItem = null
+                                        showAddSheet = true
+                                    },
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("添加带有位置的任务", fontSize = 12.sp)
+                                }
+                            }
+                        }
                     }
-                )
+                } else {
+                    // Split Screen: Map on top, Task Carousel at the bottom
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                    ) {
+                        // Interactive Map Section
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1.3f)
+                        ) {
+                            InteractiveMapView(
+                                mode = MapMode.VIEW,
+                                initialLat = mapCenterLat,
+                                initialLng = mapCenterLng,
+                                initialZoom = 13,
+                                todoItems = itemsWithLocation,
+                                onMarkerClicked = { id ->
+                                    mapSelectedItemId = id
+                                    val match = itemsWithLocation.find { it.id == id }
+                                    if (match != null) {
+                                        mapCenterLat = match.latitude!!
+                                        mapCenterLng = match.longitude!!
+                                    }
+                                }
+                            )
+                        }
+
+                        // Task Horizontal Carousel
+                        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+                        // Sync scrolling selection
+                        LaunchedEffect(mapSelectedItemId) {
+                            mapSelectedItemId?.let { selectedId ->
+                                val index = itemsWithLocation.indexOfFirst { it.id == selectedId }
+                                if (index != -1) {
+                                    listState.animateScrollToItem(index)
+                                }
+                            }
+                        }
+
+                        androidx.compose.foundation.lazy.LazyRow(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(itemsWithLocation, key = { it.id }) { item ->
+                                val isSelected = mapSelectedItemId == item.id
+                                val categoryConfig = remember(item.category) { CategoryConfig.getByName(item.category) }
+                                
+                                Card(
+                                    modifier = Modifier
+                                        .width(280.dp)
+                                        .height(110.dp)
+                                        .border(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            mapSelectedItemId = item.id
+                                            mapCenterLat = item.latitude!!
+                                            mapCenterLng = item.longitude!!
+                                        },
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+                                        else MaterialTheme.colorScheme.surface
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (isSelected) 4.dp else 1.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Complete Checkbox
+                                        IconButton(
+                                            onClick = { viewModel.toggleComplete(item) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (item.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                                                contentDescription = null,
+                                                tint = if (item.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(6.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.title,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null,
+                                                color = if (item.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = Icons.Default.LocationOn,
+                                                    contentDescription = null,
+                                                    tint = categoryConfig.color,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(3.dp))
+                                                Text(
+                                                    text = item.locationName ?: "未知位置",
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+
+                                            Spacer(modifier = Modifier.height(4.dp))
+
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = item.category,
+                                                    fontSize = 9.sp,
+                                                    color = categoryConfig.color,
+                                                    modifier = Modifier
+                                                        .background(categoryConfig.color.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                                
+                                                if (item.isImportant) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFFFFB74D),
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        // Navigate Button (opens native google maps)
+                                        IconButton(
+                                            onClick = {
+                                                try {
+                                                    val gmmIntentUri = Uri.parse("geo:0,0?q=${item.latitude},${item.longitude}(${Uri.encode(item.locationName ?: "Task Location")})")
+                                                    val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
+                                                        setPackage("com.google.android.apps.maps")
+                                                    }
+                                                    context.startActivity(mapIntent)
+                                                } catch (e: Exception) {
+                                                    Toast.makeText(context, "无法打开 Google 地图应用", Toast.LENGTH_SHORT).show()
+                                                }
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Directions,
+                                                contentDescription = "导航",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .weight(1f)
-                        .testTag("todo_list"),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(items, key = { it.id }) { item ->
-                        TodoItemRow(
-                            item = item,
-                            onToggleComplete = { viewModel.toggleComplete(item) },
-                            onToggleImportant = { viewModel.toggleImportant(item) },
-                            onEdit = {
-                                editingItem = item
-                                showAddSheet = true
-                            },
-                            onDelete = { showDeleteConfirmDialog = item }
-                        )
+                // Todo List Core
+                if (items.isEmpty()) {
+                    EmptyStateView(
+                        isFiltering = selectedFilter != "全部" || searchQuery.isNotEmpty(),
+                        onClearFilters = {
+                            viewModel.setCategoryFilter("全部")
+                            viewModel.setSearchQuery("")
+                        }
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f)
+                            .testTag("todo_list"),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        items(items, key = { it.id }) { item ->
+                            TodoItemRow(
+                                item = item,
+                                onToggleComplete = { viewModel.toggleComplete(item) },
+                                onToggleImportant = { viewModel.toggleImportant(item) },
+                                onEdit = {
+                                    editingItem = item
+                                    showAddSheet = true
+                                },
+                                onDelete = { showDeleteConfirmDialog = item }
+                            )
+                        }
                     }
                 }
             }
@@ -356,7 +634,7 @@ fun TodoScreen(
         ) {
             AddEditTodoContent(
                 editingItem = editingItem,
-                onSave = { title, description, category, isImportant, dueDate, syncToCalendar ->
+                onSave = { title, description, category, isImportant, dueDate, locationName, latitude, longitude, imageUrl, syncToCalendar ->
                     if (editingItem != null) {
                         viewModel.updateTodo(
                             editingItem!!.copy(
@@ -364,12 +642,27 @@ fun TodoScreen(
                                 description = description,
                                 category = category,
                                 isImportant = isImportant,
-                                dueDate = dueDate
+                                dueDate = dueDate,
+                                locationName = locationName,
+                                latitude = latitude,
+                                longitude = longitude,
+                                imageUrl = imageUrl
                             ),
                             syncToCalendar = syncToCalendar
                         )
                     } else {
-                        viewModel.insertTodo(title, description, category, isImportant, dueDate, syncToCalendar = syncToCalendar)
+                        viewModel.insertTodo(
+                            title = title,
+                            description = description,
+                            category = category,
+                            isImportant = isImportant,
+                            dueDate = dueDate,
+                            locationName = locationName,
+                            latitude = latitude,
+                            longitude = longitude,
+                            imageUrl = imageUrl,
+                            syncToCalendar = syncToCalendar
+                        )
                     }
                     showAddSheet = false
                     editingItem = null
@@ -399,6 +692,11 @@ fun TodoScreen(
                 onDismiss = {
                     showAiAssistant = false
                     viewModel.clearAiGeneratedItems()
+                },
+                onCenterMap = { lat, lng ->
+                    mapCenterLat = lat
+                    mapCenterLng = lng
+                    isMapMode = true
                 }
             )
         }
@@ -689,6 +987,22 @@ fun TodoItemRow(
                 }
             }
 
+            if (!item.imageUrl.isNullOrEmpty()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(item.imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "任务配图",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(50.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                )
+            }
+
             Spacer(modifier = Modifier.width(8.dp))
 
             // Action Buttons
@@ -795,14 +1109,19 @@ fun EmptyStateView(
 @Composable
 fun AddEditTodoContent(
     editingItem: TodoItem?,
-    onSave: (title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, syncToCalendar: Boolean) -> Unit,
+    onSave: (title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, locationName: String?, latitude: Double?, longitude: Double?, imageUrl: String?, syncToCalendar: Boolean) -> Unit,
     onCancel: () -> Unit
 ) {
     var title by remember { mutableStateOf(editingItem?.title ?: "") }
     var description by remember { mutableStateOf(editingItem?.description ?: "") }
     var selectedCategory by remember { mutableStateOf(editingItem?.category ?: "工作") }
+    var imageUrl by remember { mutableStateOf(editingItem?.imageUrl ?: "") }
     var isImportant by remember { mutableStateOf(editingItem?.isImportant ?: false) }
     var dueDate by remember { mutableStateOf(editingItem?.dueDate) }
+    var locationName by remember { mutableStateOf(editingItem?.locationName ?: "") }
+    var latitude by remember { mutableStateOf(editingItem?.latitude) }
+    var longitude by remember { mutableStateOf(editingItem?.longitude) }
+    var showMapPicker by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     var syncToCalendar by remember { mutableStateOf(editingItem?.calendarEventId != null) }
@@ -1089,7 +1408,234 @@ fun AddEditTodoContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Task Image Cover section
+        Text(
+            text = "配图封面 (Nanobanana)",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (imageUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "预览图",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f), RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Palette,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                OutlinedTextField(
+                    value = imageUrl,
+                    onValueChange = { imageUrl = it },
+                    label = { Text("配图 URL") },
+                    placeholder = { Text("输入图片 URL 或生成") },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                    ),
+                    trailingIcon = {
+                        if (imageUrl.isNotEmpty()) {
+                            IconButton(onClick = { imageUrl = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "清除")
+                            }
+                        }
+                    }
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Button(
+                    onClick = {
+                        if (title.isNotBlank()) {
+                            val encodedPrompt = java.net.URLEncoder.encode(title + " flat vector illustration digital art", "UTF-8")
+                            imageUrl = "https://api.nanobanana.im/image?prompt=$encodedPrompt&width=512&height=512"
+                        }
+                    },
+                    enabled = title.isNotBlank(),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(36.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("智能生成 Nanobanana 绘图", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Map Location section
+        Text(
+            text = "位置标记 (地图与位置感知)",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedTextField(
+                value = locationName,
+                onValueChange = { locationName = it },
+                label = { Text("地点/名称") },
+                placeholder = { Text("输入或在地图上选择地点") },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                ),
+                trailingIcon = {
+                    if (locationName.isNotEmpty()) {
+                        IconButton(onClick = { 
+                            locationName = "" 
+                            latitude = null
+                            longitude = null
+                        }) {
+                            Icon(Icons.Default.Clear, contentDescription = "清除")
+                        }
+                    }
+                }
+            )
+
+            // Select on Map Button
+            IconButton(
+                onClick = { showMapPicker = true },
+                modifier = Modifier
+                    .size(52.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Map,
+                    contentDescription = "在地图上选择定位",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        if (latitude != null && longitude != null) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(14.dp)
+                )
+                Text(
+                    text = "定位经纬度: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)}",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        if (showMapPicker) {
+            ModalBottomSheet(
+                onDismissRequest = { showMapPicker = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                dragHandle = { BottomSheetDefaults.DragHandle() },
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(550.dp)
+                        .padding(bottom = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("点击地图选择位置", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Button(
+                            onClick = { showMapPicker = false },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("完成选择", fontSize = 12.sp)
+                        }
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                    ) {
+                        InteractiveMapView(
+                            mode = MapMode.PICKER,
+                            initialLat = latitude ?: 30.25,
+                            initialLng = longitude ?: 120.15,
+                            initialZoom = 13,
+                            onLocationPicked = { lat, lng ->
+                                latitude = lat
+                                longitude = lng
+                                if (locationName.isBlank()) {
+                                    locationName = "选中位置"
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Confirm / cancel action buttons
         Row(
@@ -1110,7 +1656,7 @@ fun AddEditTodoContent(
             }
 
             Button(
-                onClick = { onSave(title, description, selectedCategory, isImportant, dueDate, syncToCalendar) },
+                onClick = { onSave(title, description, selectedCategory, isImportant, dueDate, locationName.ifBlank { null }, latitude, longitude, imageUrl.ifBlank { null }, syncToCalendar) },
                 enabled = title.isNotBlank(),
                 modifier = Modifier
                     .weight(1f)

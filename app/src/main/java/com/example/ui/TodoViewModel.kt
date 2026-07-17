@@ -85,7 +85,18 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         initialValue = TaskStats()
     )
 
-    fun insertTodo(title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, syncToCalendar: Boolean = false) {
+    fun insertTodo(
+        title: String,
+        description: String,
+        category: String,
+        isImportant: Boolean,
+        dueDate: Long?,
+        locationName: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        imageUrl: String? = null,
+        syncToCalendar: Boolean = false
+    ) {
         viewModelScope.launch {
             if (title.isNotBlank()) {
                 var calendarEventId: Long? = null
@@ -94,7 +105,11 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                     description = description.trim(),
                     category = category,
                     isImportant = isImportant,
-                    dueDate = dueDate
+                    dueDate = dueDate,
+                    locationName = locationName?.trim()?.ifEmpty { null },
+                    latitude = latitude,
+                    longitude = longitude,
+                    imageUrl = imageUrl
                 )
                 
                 if (syncToCalendar && dueDate != null) {
@@ -183,16 +198,31 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     // AI Assistant States
     val aiLoading = MutableStateFlow(false)
     val aiGeneratedItems = MutableStateFlow<List<com.example.utils.GeneratedTodoItem>>(emptyList())
+    val aiGeneratedActions = MutableStateFlow<List<com.example.utils.GeneratedAction>>(emptyList())
+    val aiGeneratedArt = MutableStateFlow<com.example.utils.GeneratedImageArt?>(null)
+    val aiGeneratedSong = MutableStateFlow<com.example.utils.GeneratedSong?>(null)
     val aiError = MutableStateFlow<String?>(null)
+    val aiApiKey = MutableStateFlow("")
+
+    init {
+        aiApiKey.value = com.example.utils.GeminiManager.getApiKey(getApplication())
+    }
+
+    fun saveAiApiKey(key: String) {
+        com.example.utils.GeminiManager.saveApiKey(getApplication(), key)
+        aiApiKey.value = key
+    }
 
     fun generateTodoWithAi(prompt: String) {
         if (prompt.isBlank()) return
         viewModelScope.launch {
             aiLoading.value = true
             aiError.value = null
+            aiGeneratedActions.value = emptyList()
             try {
-                val results = com.example.utils.GeminiManager.generateTodoItems(prompt)
-                aiGeneratedItems.value = results
+                val response = com.example.utils.GeminiManager.generateTodoItems(getApplication(), prompt)
+                aiGeneratedItems.value = response.todoItems
+                aiGeneratedActions.value = response.actions
             } catch (e: Exception) {
                 e.printStackTrace()
                 aiError.value = e.message ?: "生成失败，请检查网络或配置"
@@ -202,6 +232,48 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun generateArtWithAi(prompt: String) {
+        if (prompt.isBlank()) return
+        viewModelScope.launch {
+            aiLoading.value = true
+            aiError.value = null
+            aiGeneratedArt.value = null
+            try {
+                val result = com.example.utils.GeminiManager.generateImageArt(getApplication(), prompt)
+                aiGeneratedArt.value = result
+            } catch (e: Exception) {
+                e.printStackTrace()
+                aiError.value = e.message ?: "图片生成失败，请检查密钥或网络"
+            } finally {
+                aiLoading.value = false
+            }
+        }
+    }
+
+    fun generateSongWithAi(prompt: String) {
+        if (prompt.isBlank()) return
+        viewModelScope.launch {
+            aiLoading.value = true
+            aiError.value = null
+            aiGeneratedSong.value = null
+            try {
+                val result = com.example.utils.GeminiManager.generateSong(getApplication(), prompt)
+                aiGeneratedSong.value = result
+            } catch (e: Exception) {
+                e.printStackTrace()
+                aiError.value = e.message ?: "歌曲生成失败，请检查密钥或网络"
+            } finally {
+                aiLoading.value = false
+            }
+        }
+    }
+
+    fun clearAiMultimedia() {
+        aiGeneratedArt.value = null
+        aiGeneratedSong.value = null
+        aiError.value = null
+    }
+
     fun importAiTodoItems(items: List<com.example.utils.GeneratedTodoItem>) {
         viewModelScope.launch {
             items.forEach { item ->
@@ -209,7 +281,11 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                     title = item.title,
                     description = item.description,
                     category = item.category,
-                    isImportant = item.isImportant
+                    isImportant = item.isImportant,
+                    locationName = item.locationName,
+                    latitude = item.latitude,
+                    longitude = item.longitude,
+                    imageUrl = item.imageUrl
                 )
                 repository.insert(todo)
             }
@@ -220,6 +296,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearAiGeneratedItems() {
         aiGeneratedItems.value = emptyList()
+        aiGeneratedActions.value = emptyList()
         aiError.value = null
     }
 }
