@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Clipboard Board Shadow -->
+    <path
+        android:fillColor="#1A000000"
+        android:pathData="M35,28h40c3.3,0 6,2.7 6,6v44c0,3.3 -2.7,6 -6,6h-40c-3.3,0 -6,-2.7 -6,-6v-44c0,-3.3 2.7,-6 6,-6z" />
+
+    <!-- Clipboard Board -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,26h40c3.3,0 6,2.7 6,6v44c0,3.3 -2.7,6 -6,6h-40c-3.3,0 -6,-2.7 -6,-6v-44c0,-3.3 2.7,-6 6,-6z" />
+
+    <!-- Clipboard Metal Header / Clip -->
+    <path
+        android:fillColor="#D1D5DB"
+        android:pathData="M46,22h16c1.1,0 2,0.9 2,2v4H44v-4c0,-1.1 0.9,-2 2,-2z" />
+    <path
+        android:fillColor="#9CA3AF"
+        android:pathData="M52,18h4c1.1,0 2,0.9 2,2v2H50v-2c0,-1.1 0.9,-2 2,-2z" />
+
+    <!-- Checked Item 1 -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M38,40l3,3 7,-7 1.4,1.4 -8.4,8.4 -4.4,-4.4z" />
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M52,40h18v2H52z" />
+
+    <!-- Checked Item 2 -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M38,52l3,3 7,-7 1.4,1.4 -8.4,8.4 -4.4,-4.4z" />
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M52,52h18v2H52z" />
+
+    <!-- Checked Item 3 -->
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M38,64l3,3 7,-7 1.4,1.4 -8.4,8.4 -4.4,-4.4z" />
+    <path
+        android:fillColor="#6750A4"
+        android:pathData="M52,64h18v2H52z" />
+</vector>
