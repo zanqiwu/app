@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
 import com.example.data.TodoItem
 import com.example.data.TodoRepository
+import com.example.data.SegmentedPlan
 import com.example.utils.CalendarSyncHelper
 import com.example.widget.TodoAppWidgetProvider
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,9 +25,26 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     // Search query
     val searchQuery = MutableStateFlow("")
 
+    // Background style selection
+    private val sharedPrefs = application.getSharedPreferences("todo_settings", android.content.Context.MODE_PRIVATE)
+    val backgroundStyle = MutableStateFlow(sharedPrefs.getString("background_style", "default") ?: "default")
+
+    fun setBackgroundStyle(style: String) {
+        backgroundStyle.value = style
+        sharedPrefs.edit().putString("background_style", style).apply()
+    }
+
+    // Compact mode preference
+    val isCompactMode = MutableStateFlow(sharedPrefs.getBoolean("is_compact_mode", false))
+
+    fun setCompactMode(compact: Boolean) {
+        isCompactMode.value = compact
+        sharedPrefs.edit().putBoolean("is_compact_mode", compact).apply()
+    }
+
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = TodoRepository(database.todoDao())
+        repository = TodoRepository(database.todoDao(), database.segmentedPlanDao())
     }
 
     // Expose filtered items
@@ -84,6 +102,39 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = TaskStats()
     )
+
+    // Segmented plans Flow
+    val segmentedPlansState: StateFlow<List<SegmentedPlan>> = repository.allPlans
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    fun insertSegmentedPlan(title: String, planType: String, targetDate: String) {
+        viewModelScope.launch {
+            if (title.isNotBlank()) {
+                val plan = SegmentedPlan(
+                    title = title.trim(),
+                    planType = planType,
+                    targetDate = targetDate
+                )
+                repository.insertPlan(plan)
+            }
+        }
+    }
+
+    fun toggleSegmentedPlan(plan: SegmentedPlan) {
+        viewModelScope.launch {
+            repository.updatePlan(plan.copy(isCompleted = !plan.isCompleted))
+        }
+    }
+
+    fun deleteSegmentedPlan(plan: SegmentedPlan) {
+        viewModelScope.launch {
+            repository.deletePlan(plan)
+        }
+    }
 
     fun insertTodo(
         title: String,

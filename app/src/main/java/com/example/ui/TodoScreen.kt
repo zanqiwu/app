@@ -72,194 +72,351 @@ fun TodoScreen(
 
     // Dialog & sheet state
     var showDeleteConfirmDialog by remember { mutableStateOf<TodoItem?>(null) }
+    var showMapSelectorForTodo by remember { mutableStateOf<TodoItem?>(null) }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        topBar = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .statusBarsPadding()
-                    .padding(horizontal = 20.dp, vertical = 12.dp)
-            ) {
-                // Title and clear buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+    // Navigation and Background variables
+    var currentScreen by remember { mutableStateOf("todos") } // "todos", "settings", "extensions"
+    val backgroundStyle by viewModel.backgroundStyle.collectAsStateWithLifecycle()
+    val isCompactMode by viewModel.isCompactMode.collectAsStateWithLifecycle()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    val defaultSyncPrefs = remember { context.getSharedPreferences("todo_settings", android.content.Context.MODE_PRIVATE) }
+    var defaultSyncToCalendar by remember { mutableStateOf(defaultSyncPrefs.getBoolean("default_sync_to_calendar", false)) }
+
+    val backgroundBrush = remember(backgroundStyle) {
+        when (backgroundStyle) {
+            "cosmic" -> Brush.verticalGradient(
+                colors = listOf(Color(0xFF0F0C20), Color(0xFF16102D), Color(0xFF08060D))
+            )
+            "forest" -> Brush.verticalGradient(
+                colors = listOf(Color(0xFF091F15), Color(0xFF113222), Color(0xFF050E0A))
+            )
+            "sakura" -> Brush.verticalGradient(
+                colors = listOf(Color(0xFF2E151B), Color(0xFF3F1D25), Color(0xFF1B090E))
+            )
+            "aurora" -> Brush.verticalGradient(
+                colors = listOf(Color(0xFF051D21), Color(0xFF0A3138), Color(0xFF020F12))
+            )
+            "sunset" -> Brush.verticalGradient(
+                colors = listOf(Color(0xFF270E17), Color(0xFF3A1320), Color(0xFF14030A))
+            )
+            else -> null
+        }
+    }
+
+    val rootModifier = if (backgroundBrush != null) {
+        modifier.fillMaxSize().background(backgroundBrush)
+    } else {
+        modifier.fillMaxSize()
+    }
+
+    Box(modifier = rootModifier) {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                ModalDrawerSheet(
+                    drawerContainerColor = if (backgroundBrush != null) Color(0xFF110F20).copy(alpha = 0.95f) else MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.width(300.dp)
                 ) {
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = "待办清单",
-                                fontSize = 28.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.primary,
-                                                MaterialTheme.colorScheme.tertiary
-                                            )
-                                        )
-                                    )
-                                    .clickable { showAiAssistant = true }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.AutoAwesome,
-                                    contentDescription = "AI 助理",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = "AI 规划",
-                                    color = Color.White,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(4.dp))
-
-                            // 地图模式 Toggle Button
-                            Row(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        if (isMapMode) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                    .clickable { isMapMode = !isMapMode }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isMapMode) Icons.Default.List else Icons.Default.Map,
-                                    contentDescription = "地图模式",
-                                    tint = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(13.dp)
-                                )
-                                Text(
-                                    text = if (isMapMode) "列表" else "地图",
-                                    color = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                    DrawerContent(
+                        currentScreen = currentScreen,
+                        stats = stats,
+                        onScreenSelected = { screen ->
+                            currentScreen = screen
+                            scope.launch { drawerState.close() }
                         }
-                        Text(
-                            text = remember {
-                                val cal = Calendar.getInstance()
-                                val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
-                                    Calendar.SUNDAY -> "星期日"
-                                    Calendar.MONDAY -> "星期一"
-                                    Calendar.TUESDAY -> "星期二"
-                                    Calendar.WEDNESDAY -> "星期三"
-                                    Calendar.THURSDAY -> "星期四"
-                                    Calendar.FRIDAY -> "星期五"
-                                    Calendar.SATURDAY -> "星期六"
-                                    else -> ""
-                                }
-                                val sdf = SimpleDateFormat("M月d日", Locale.getDefault())
-                                "${sdf.format(cal.time)} · $dayOfWeek"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    // Clear completed button
-                    if (stats.completed > 0) {
-                        TextButton(
-                            onClick = { viewModel.deleteCompleted() },
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            ),
-                            modifier = Modifier.testTag("clear_completed_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.DeleteSweep,
-                                contentDescription = "清除已完成",
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("清除已完成", fontSize = 13.sp)
-                        }
-                    }
+                    )
                 }
+            }
+        ) {
+            Scaffold(
+                modifier = Modifier.fillMaxSize(),
+                containerColor = if (backgroundBrush != null) Color.Transparent else MaterialTheme.colorScheme.background,
+                topBar = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(if (backgroundBrush != null) Color.Transparent else MaterialTheme.colorScheme.surface)
+                            .statusBarsPadding()
+                            .padding(horizontal = 20.dp, vertical = 12.dp)
+                    ) {
+                        if (currentScreen == "todos") {
+                            // Title and clear buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        IconButton(
+                                            onClick = { scope.launch { drawerState.open() } },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Menu,
+                                                contentDescription = "菜单",
+                                                tint = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                        Text(
+                                            text = "待办清单",
+                                            fontSize = 28.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(
+                                                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                                        colors = listOf(
+                                                            MaterialTheme.colorScheme.primary,
+                                                            MaterialTheme.colorScheme.tertiary
+                                                        )
+                                                    )
+                                                )
+                                                .clickable { showAiAssistant = true }
+                                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.AutoAwesome,
+                                                contentDescription = "AI 助理",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = "AI 规划",
+                                                color = Color.White,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
 
-                // Search Bar
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { viewModel.setSearchQuery(it) },
-                    placeholder = { Text("搜索待办事项...", fontSize = 14.sp) },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "搜索",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.setSearchQuery("") }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = "清除搜索"
-                                )
+                                        // 地图模式 Toggle Button
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(
+                                                    if (isMapMode) MaterialTheme.colorScheme.primaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                                )
+                                                .clickable { isMapMode = !isMapMode }
+                                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isMapMode) Icons.Default.List else Icons.Default.Map,
+                                                contentDescription = "地图模式",
+                                                tint = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = if (isMapMode) "列表" else "地图",
+                                                color = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+
+                                        // 紧凑模式 Toggle Button
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .background(
+                                                    if (isCompactMode) MaterialTheme.colorScheme.primaryContainer
+                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                                )
+                                                .clickable { viewModel.setCompactMode(!isCompactMode) }
+                                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isCompactMode) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
+                                                contentDescription = "紧凑模式",
+                                                tint = if (isCompactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Text(
+                                                text = if (isCompactMode) "紧凑" else "标准",
+                                                color = if (isCompactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = remember {
+                                            val cal = Calendar.getInstance()
+                                            val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
+                                                Calendar.SUNDAY -> "星期日"
+                                                Calendar.MONDAY -> "星期一"
+                                                Calendar.TUESDAY -> "星期二"
+                                                Calendar.WEDNESDAY -> "星期三"
+                                                Calendar.THURSDAY -> "星期四"
+                                                Calendar.FRIDAY -> "星期五"
+                                                Calendar.SATURDAY -> "星期六"
+                                                else -> ""
+                                            }
+                                            val sdf = SimpleDateFormat("M月d日", Locale.getDefault())
+                                            "${sdf.format(cal.time)} · $dayOfWeek"
+                                        },
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (backgroundBrush != null) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(start = 38.dp)
+                                    )
+                                }
+
+                                // Clear completed button
+                                if (stats.completed > 0) {
+                                    TextButton(
+                                        onClick = { viewModel.deleteCompleted() },
+                                        colors = ButtonDefaults.textButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.error
+                                        ),
+                                        modifier = Modifier.testTag("clear_completed_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteSweep,
+                                            contentDescription = "清除已完成",
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("清除已完成", fontSize = 13.sp)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Search Bar with local state & debounce to prevent heavy recompositions while typing
+                            var localSearchQuery by remember { mutableStateOf(searchQuery) }
+                            LaunchedEffect(searchQuery) {
+                                if (searchQuery != localSearchQuery) {
+                                    localSearchQuery = searchQuery
+                                }
+                            }
+                            LaunchedEffect(localSearchQuery) {
+                                if (localSearchQuery != searchQuery) {
+                                    kotlinx.coroutines.delay(300)
+                                    viewModel.setSearchQuery(localSearchQuery)
+                                }
+                            }
+
+                            OutlinedTextField(
+                                value = localSearchQuery,
+                                onValueChange = { localSearchQuery = it },
+                                placeholder = { Text("搜索待办事项...", fontSize = 14.sp) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "搜索",
+                                        tint = if (backgroundBrush != null) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (localSearchQuery.isNotEmpty()) {
+                                        IconButton(onClick = { 
+                                            localSearchQuery = ""
+                                            viewModel.setSearchQuery("") 
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "清除搜索"
+                                            )
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                keyboardActions = KeyboardActions(onSearch = { /* Collapse keyboard */ }),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                    unfocusedBorderColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.2f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                                    focusedContainerColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    unfocusedContainerColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    focusedTextColor = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface,
+                                    unfocusedTextColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.onSurface,
+                                    focusedPlaceholderColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    unfocusedPlaceholderColor = if (backgroundBrush != null) Color.White.copy(alpha = 0.4f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp)
+                                    .testTag("search_bar")
+                            )
+                        } else {
+                            // Settings or Extensions TopBar
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = { scope.launch { drawerState.open() } },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Menu,
+                                            contentDescription = "菜单",
+                                            tint = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Text(
+                                        text = when (currentScreen) {
+                                            "settings" -> "设置中心"
+                                            "extensions" -> "效率拓展"
+                                            "plans" -> "分段计划"
+                                            "analysis" -> "数据分析"
+                                            else -> "待办清单"
+                                        },
+                                        fontSize = 24.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
                             }
                         }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { /* Collapse keyboard */ }),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                        .testTag("search_bar")
-                )
-            }
-        },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    editingItem = null
-                    showAddSheet = true
+                    }
                 },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier
-                    .navigationBarsPadding()
-                    .padding(bottom = 8.dp)
-                    .testTag("add_todo_fab")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "添加任务",
-                    modifier = Modifier.size(28.dp)
-                )
+        floatingActionButton = {
+            if (currentScreen == "todos") {
+                FloatingActionButton(
+                    onClick = {
+                        editingItem = null
+                        showAddSheet = true
+                    },
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .navigationBarsPadding()
+                        .padding(bottom = 8.dp)
+                        .testTag("add_todo_fab")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "添加任务",
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
         }
     ) { innerPadding ->
@@ -268,8 +425,35 @@ fun TodoScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Stats Panel
-            StatsCard(stats = stats)
+            when (currentScreen) {
+                "settings" -> {
+                    SettingsScreenContent(
+                        currentStyle = backgroundStyle,
+                        onStyleSelected = { viewModel.setBackgroundStyle(it) },
+                        syncToCalendar = defaultSyncToCalendar,
+                        onSyncToCalendarChanged = {
+                            defaultSyncToCalendar = it
+                            defaultSyncPrefs.edit().putBoolean("default_sync_to_calendar", it).apply()
+                        },
+                        context = context
+                    )
+                }
+                "extensions" -> {
+                    ExtensionsScreenContent(
+                        viewModel = viewModel,
+                        stats = stats,
+                        context = context
+                    )
+                }
+                "plans" -> {
+                    SegmentedPlansScreenContent(viewModel = viewModel)
+                }
+                "analysis" -> {
+                    AnalysisScreenContent(viewModel = viewModel)
+                }
+                else -> {
+                    // Stats Panel
+                    StatsCard(stats = stats)
 
             // Horizontal Categories Selector
             LazyRow(
@@ -573,18 +757,20 @@ fun TodoScreen(
                             .weight(1f)
                             .testTag("todo_list"),
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                        verticalArrangement = Arrangement.spacedBy(if (isCompactMode) 6.dp else 10.dp)
                     ) {
                         items(items, key = { it.id }) { item ->
                             TodoItemRow(
                                 item = item,
+                                isCompact = isCompactMode,
                                 onToggleComplete = { viewModel.toggleComplete(item) },
                                 onToggleImportant = { viewModel.toggleImportant(item) },
                                 onEdit = {
                                     editingItem = item
                                     showAddSheet = true
                                 },
-                                onDelete = { showDeleteConfirmDialog = item }
+                                onDelete = { showDeleteConfirmDialog = item },
+                                onNavigate = { showMapSelectorForTodo = item }
                             )
                         }
                     }
@@ -592,6 +778,10 @@ fun TodoScreen(
             }
         }
     }
+}
+}
+}
+}
 
     // Delete confirmation Dialog
     showDeleteConfirmDialog?.let { item ->
@@ -616,6 +806,85 @@ fun TodoScreen(
                     onClick = { showDeleteConfirmDialog = null },
                     modifier = Modifier.testTag("cancel_delete_button")
                 ) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    // Map selection Dialog
+    showMapSelectorForTodo?.let { item ->
+        AlertDialog(
+            onDismissRequest = { showMapSelectorForTodo = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("选择地图导航应用", fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val mapApps = listOf(
+                        Triple("default", "系统默认地图 (推荐)", Icons.Default.Explore),
+                        Triple("amap", "高德地图", Icons.Default.Navigation),
+                        Triple("baidu", "百度地图", Icons.Default.PinDrop),
+                        Triple("tencent", "腾讯地图", Icons.Default.LocationOn),
+                        Triple("google", "Google 地图", Icons.Default.Language)
+                    )
+                    
+                    mapApps.forEach { (type, name, icon) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable {
+                                    openExternalMap(
+                                        context = context,
+                                        latitude = item.latitude ?: 0.0,
+                                        longitude = item.longitude ?: 0.0,
+                                        label = item.locationName ?: item.title,
+                                        mapType = type
+                                    )
+                                    showMapSelectorForTodo = null
+                                }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = name,
+                                tint = when (type) {
+                                    "default" -> MaterialTheme.colorScheme.primary
+                                    "amap" -> Color(0xFF1B82D2)
+                                    "baidu" -> Color(0xFFE60012)
+                                    "tencent" -> Color(0xFF2FA87B)
+                                    "google" -> Color(0xFF4285F4)
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = name,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMapSelectorForTodo = null }) {
                     Text("取消")
                 }
             }
@@ -804,10 +1073,12 @@ fun StatsCard(stats: TaskStats) {
 @Composable
 fun TodoItemRow(
     item: TodoItem,
+    isCompact: Boolean = false,
     onToggleComplete: () -> Unit,
     onToggleImportant: () -> Unit,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onNavigate: () -> Unit = {}
 ) {
     val categoryConfig = remember(item.category) { CategoryConfig.getByName(item.category) }
     val dateFormatter = remember { SimpleDateFormat("MM-dd", Locale.getDefault()) }
@@ -816,7 +1087,7 @@ fun TodoItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("todo_item_${item.id}"),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(if (isCompact) 8.dp else 12.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (item.isCompleted) {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -829,14 +1100,17 @@ fun TodoItemRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 12.dp, horizontal = 14.dp),
+                .padding(
+                    vertical = if (isCompact) 6.dp else 12.dp,
+                    horizontal = if (isCompact) 10.dp else 14.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Checkbox Container
             IconButton(
                 onClick = onToggleComplete,
                 modifier = Modifier
-                    .size(36.dp)
+                    .size(if (isCompact) 28.dp else 36.dp)
                     .testTag("todo_item_checkbox_${item.id}")
             ) {
                 Icon(
@@ -851,11 +1125,11 @@ fun TodoItemRow(
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     },
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(if (isCompact) 18.dp else 24.dp)
                 )
             }
 
-            Spacer(modifier = Modifier.width(6.dp))
+            Spacer(modifier = Modifier.width(if (isCompact) 4.dp else 6.dp))
 
             // Text Content (Title, Description, Tags)
             Column(
@@ -863,21 +1137,36 @@ fun TodoItemRow(
                     .weight(1f)
                     .clickable { onEdit() }
             ) {
-                Text(
-                    text = item.title,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (item.isCompleted) {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
-                    textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = item.title,
+                        fontSize = if (isCompact) 14.sp else 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (item.isCompleted) {
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
 
-                if (item.description.isNotEmpty()) {
+                    if (isCompact) {
+                        // Small category dot indicator in compact mode
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(categoryConfig.color, CircleShape)
+                        )
+                    }
+                }
+
+                if (item.description.isNotEmpty() && !isCompact) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = item.description,
@@ -892,108 +1181,188 @@ fun TodoItemRow(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                if (!isCompact) {
+                    Spacer(modifier = Modifier.height(6.dp))
 
-                // Bottom Metadata tags row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    // Category Tag
+                    // Bottom Metadata tags row
                     Row(
-                        modifier = Modifier
-                            .background(
-                                color = categoryConfig.color.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = categoryConfig.icon,
-                            contentDescription = null,
-                            tint = categoryConfig.color,
-                            modifier = Modifier.size(11.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = categoryConfig.name,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = categoryConfig.color
-                        )
-                    }
-
-                    // Due Date Tag
-                    item.dueDate?.let { dueDateMillis ->
-                        val isOverdue = dueDateMillis < System.currentTimeMillis() && !item.isCompleted
-                        val dueDateStr = dateFormatter.format(Date(dueDateMillis))
+                        // Category Tag
                         Row(
                             modifier = Modifier
                                 .background(
-                                    color = if (isOverdue) {
-                                        MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
-                                    } else {
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                    },
+                                    color = categoryConfig.color.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(4.dp)
                                 )
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = Icons.Default.CalendarToday,
+                                imageVector = categoryConfig.icon,
                                 contentDescription = null,
-                                tint = if (isOverdue) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.size(10.dp)
+                                tint = categoryConfig.color,
+                                modifier = Modifier.size(11.dp)
                             )
                             Spacer(modifier = Modifier.width(3.dp))
                             Text(
-                                text = dueDateStr,
-                                fontSize = 11.sp,
-                                color = if (isOverdue) {
-                                    MaterialTheme.colorScheme.error
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-                            )
-                        }
-                    }
-
-                    // Calendar Synced Tag
-                    if (item.calendarEventId != null) {
-                        Row(
-                            modifier = Modifier
-                                .background(
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(4.dp)
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Event,
-                                contentDescription = "已同步到日历",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(10.dp)
-                            )
-                            Spacer(modifier = Modifier.width(3.dp))
-                            Text(
-                                text = "已同步",
+                                text = categoryConfig.name,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.primary
+                                color = categoryConfig.color
+                            )
+                        }
+
+                        // Due Date Tag
+                        item.dueDate?.let { dueDateMillis ->
+                            val isOverdue = dueDateMillis < System.currentTimeMillis() && !item.isCompleted
+                            val dueDateStr = dateFormatter.format(Date(dueDateMillis))
+                            Row(
+                                modifier = Modifier
+                                    .background(
+                                        color = if (isOverdue) {
+                                            MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarToday,
+                                    contentDescription = null,
+                                    tint = if (isOverdue) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = dueDateStr,
+                                    fontSize = 11.sp,
+                                    color = if (isOverdue) {
+                                        MaterialTheme.colorScheme.error
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
+                                )
+                            }
+                        }
+
+                        // Calendar Synced Tag
+                        if (item.calendarEventId != null) {
+                            Row(
+                                modifier = Modifier
+                                    .background(
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Event,
+                                    contentDescription = "已同步到日历",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = "已同步",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        // Location Tag
+                        if (item.latitude != null && item.longitude != null) {
+                            Row(
+                                modifier = Modifier
+                                    .background(
+                                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(4.dp)
+                                    )
+                                    .clickable {
+                                        onNavigate()
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "查看位置与导航",
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(3.dp))
+                                Text(
+                                    text = item.locationName ?: "查看位置",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 100.dp)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    // Micro indicators for compact mode
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        // Due date micro indicator
+                        item.dueDate?.let { dueDateMillis ->
+                            val isOverdue = dueDateMillis < System.currentTimeMillis() && !item.isCompleted
+                            val dueDateStr = dateFormatter.format(Date(dueDateMillis))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarToday,
+                                    contentDescription = null,
+                                    tint = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = dueDateStr,
+                                    fontSize = 10.sp,
+                                    color = if (isOverdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        if (item.calendarEventId != null) {
+                            Icon(
+                                imageVector = Icons.Default.Event,
+                                contentDescription = "已同步",
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(10.dp)
+                            )
+                        }
+
+                        if (item.latitude != null && item.longitude != null) {
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "有位置",
+                                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f),
+                                modifier = Modifier.size(10.dp)
                             )
                         }
                     }
                 }
             }
 
-            if (!item.imageUrl.isNullOrEmpty()) {
+            if (!item.imageUrl.isNullOrEmpty() && !isCompact) {
                 Spacer(modifier = Modifier.width(8.dp))
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
@@ -1009,7 +1378,7 @@ fun TodoItemRow(
                 )
             }
 
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(if (isCompact) 4.dp else 8.dp))
 
             // Action Buttons
             Row(
@@ -1019,7 +1388,7 @@ fun TodoItemRow(
                 IconButton(
                     onClick = onToggleImportant,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(if (isCompact) 28.dp else 36.dp)
                         .testTag("todo_item_important_button_${item.id}")
                 ) {
                     Icon(
@@ -1030,7 +1399,7 @@ fun TodoItemRow(
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         },
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(if (isCompact) 18.dp else 22.dp)
                     )
                 }
 
@@ -1038,14 +1407,14 @@ fun TodoItemRow(
                 IconButton(
                     onClick = onDelete,
                     modifier = Modifier
-                        .size(36.dp)
+                        .size(if (isCompact) 28.dp else 36.dp)
                         .testTag("todo_item_delete_button_${item.id}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
                         contentDescription = "删除待办",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(if (isCompact) 18.dp else 20.dp)
                     )
                 }
             }
@@ -1118,13 +1487,13 @@ fun AddEditTodoContent(
     onSave: (title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, locationName: String?, latitude: Double?, longitude: Double?, imageUrl: String?, syncToCalendar: Boolean, alarmTime: Long?, hasAlarm: Boolean) -> Unit,
     onCancel: () -> Unit
 ) {
-    var title by remember { mutableStateOf(editingItem?.title ?: "") }
-    var description by remember { mutableStateOf(editingItem?.description ?: "") }
+    val titleState = remember { mutableStateOf(editingItem?.title ?: "") }
+    val descriptionState = remember { mutableStateOf(editingItem?.description ?: "") }
     var selectedCategory by remember { mutableStateOf(editingItem?.category ?: "工作") }
-    var imageUrl by remember { mutableStateOf(editingItem?.imageUrl ?: "") }
+    val imageUrlState = remember { mutableStateOf(editingItem?.imageUrl ?: "") }
     var isImportant by remember { mutableStateOf(editingItem?.isImportant ?: false) }
     var dueDate by remember { mutableStateOf(editingItem?.dueDate) }
-    var locationName by remember { mutableStateOf(editingItem?.locationName ?: "") }
+    val locationNameState = remember { mutableStateOf(editingItem?.locationName ?: "") }
     var latitude by remember { mutableStateOf(editingItem?.latitude) }
     var longitude by remember { mutableStateOf(editingItem?.longitude) }
     var showMapPicker by remember { mutableStateOf(false) }
@@ -1141,7 +1510,9 @@ fun AddEditTodoContent(
     }
 
     val context = LocalContext.current
-    var syncToCalendar by remember { mutableStateOf(editingItem?.calendarEventId != null) }
+    val sharedPrefsForSync = remember { context.getSharedPreferences("todo_settings", android.content.Context.MODE_PRIVATE) }
+    val defaultSyncVal = remember { sharedPrefsForSync.getBoolean("default_sync_to_calendar", false) }
+    var syncToCalendar by remember { mutableStateOf(editingItem?.calendarEventId != null || (editingItem == null && defaultSyncVal)) }
 
     val coroutineScope = rememberCoroutineScope()
     var isGeneratingImage by remember { mutableStateOf(false) }
@@ -1156,7 +1527,7 @@ fun AddEditTodoContent(
                 java.io.FileOutputStream(file).use { out ->
                     inputStream?.copyTo(out)
                 }
-                imageUrl = file.absolutePath
+                imageUrlState.value = file.absolutePath
                 Toast.makeText(context, "图片上传成功！", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -1195,9 +1566,8 @@ fun AddEditTodoContent(
         )
 
         // Title text field
-        OutlinedTextField(
-            value = title,
-            onValueChange = { title = it },
+        FastOutlinedTextField(
+            state = titleState,
             label = { Text("待办名称 (必填)") },
             placeholder = { Text("例如：买牛奶、写周报...") },
             singleLine = true,
@@ -1213,9 +1583,8 @@ fun AddEditTodoContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         // Description text field
-        OutlinedTextField(
-            value = description,
-            onValueChange = { description = it },
+        FastOutlinedTextField(
+            state = descriptionState,
             label = { Text("备注信息") },
             placeholder = { Text("添加相关的描述、地址或备忘事项") },
             minLines = 2,
@@ -1589,10 +1958,10 @@ fun AddEditTodoContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            if (imageUrl.isNotEmpty()) {
+            if (imageUrlState.value.isNotEmpty()) {
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
-                        .data(imageUrl)
+                        .data(imageUrlState.value)
                         .crossfade(true)
                         .build(),
                     contentDescription = "预览图",
@@ -1620,9 +1989,8 @@ fun AddEditTodoContent(
             }
 
             Column(modifier = Modifier.weight(1f)) {
-                OutlinedTextField(
-                    value = imageUrl,
-                    onValueChange = { imageUrl = it },
+                FastOutlinedTextField(
+                    state = imageUrlState,
                     label = { Text("配图 URL/本地路径") },
                     placeholder = { Text("输入图片 URL/路径或生成") },
                     singleLine = true,
@@ -1633,8 +2001,8 @@ fun AddEditTodoContent(
                         unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
                     ),
                     trailingIcon = {
-                        if (imageUrl.isNotEmpty()) {
-                            IconButton(onClick = { imageUrl = "" }) {
+                        if (imageUrlState.value.isNotEmpty()) {
+                            IconButton(onClick = { imageUrlState.value = "" }) {
                                 Icon(Icons.Default.Clear, contentDescription = "清除")
                             }
                         }
@@ -1665,50 +2033,14 @@ fun AddEditTodoContent(
                         Text("本地上传", fontSize = 11.sp)
                     }
 
-                    // Direct Gemini Imagen Button
-                    val promptToUse = if (imageUrl.isNotBlank() && !imageUrl.startsWith("http") && !imageUrl.startsWith("/")) {
-                        imageUrl
-                    } else if (title.isNotBlank()) {
-                        title
-                    } else {
-                        ""
-                    }
-
-                    Button(
-                        onClick = {
-                            if (promptToUse.isNotBlank()) {
-                                coroutineScope.launch {
-                                    isGeneratingImage = true
-                                    try {
-                                        val path = com.example.utils.GeminiManager.generateImageWithGemini(context, promptToUse + " flat vector illustration digital art")
-                                        imageUrl = path
-                                        Toast.makeText(context, "Imagen 4 绘图生成成功！", Toast.LENGTH_SHORT).show()
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        Toast.makeText(context, "生成失败: ${e.message}", Toast.LENGTH_LONG).show()
-                                    } finally {
-                                        isGeneratingImage = false
-                                    }
-                                }
-                            }
-                        },
-                        enabled = promptToUse.isNotBlank() && !isGeneratingImage,
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        ),
-                        modifier = Modifier.weight(1.2f).height(36.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        if (isGeneratingImage) {
-                            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        } else {
-                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
-                        }
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(if (isGeneratingImage) "正在绘制..." else "Imagen 4 绘制", fontSize = 11.sp)
-                    }
+                    // Direct Gemini Imagen Button (Optimized to isolate recompositions)
+                    ImagenButton(
+                        titleState = titleState,
+                        imageUrlState = imageUrlState,
+                        isGeneratingImage = isGeneratingImage,
+                        onImageGenerated = { path -> imageUrlState.value = path },
+                        modifier = Modifier.weight(1.2f)
+                    )
                 }
             }
         }
@@ -1730,9 +2062,8 @@ fun AddEditTodoContent(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            OutlinedTextField(
-                value = locationName,
-                onValueChange = { locationName = it },
+            FastOutlinedTextField(
+                state = locationNameState,
                 label = { Text("地点/名称") },
                 placeholder = { Text("输入或在地图上选择地点") },
                 singleLine = true,
@@ -1742,9 +2073,9 @@ fun AddEditTodoContent(
                     unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
                 ),
                 trailingIcon = {
-                    if (locationName.isNotEmpty()) {
+                    if (locationNameState.value.isNotEmpty()) {
                         IconButton(onClick = { 
-                            locationName = "" 
+                            locationNameState.value = "" 
                             latitude = null
                             longitude = null
                         }) {
@@ -1836,8 +2167,8 @@ fun AddEditTodoContent(
                             onLocationPicked = { lat, lng ->
                                 latitude = lat
                                 longitude = lng
-                                if (locationName.isBlank()) {
-                                    locationName = "选中位置"
+                                if (locationNameState.value.isBlank()) {
+                                    locationNameState.value = "选中位置"
                                 }
                             }
                         )
@@ -1866,31 +2197,934 @@ fun AddEditTodoContent(
                 Text("取消")
             }
 
-            Button(
+            SaveButton(
+                titleState = titleState,
                 onClick = { 
                     if (hasAlarm && alarmTime != null && setSystemAlarmToo) {
                         val cal = Calendar.getInstance().apply { timeInMillis = alarmTime!! }
                         com.example.utils.AlarmScheduler.createSystemAlarm(
                             context = context,
-                            title = title,
+                            title = titleState.value,
                             hour = cal.get(Calendar.HOUR_OF_DAY),
                             minute = cal.get(Calendar.MINUTE)
                         )
                     }
-                    onSave(title, description, selectedCategory, isImportant, dueDate, locationName.ifBlank { null }, latitude, longitude, imageUrl.ifBlank { null }, syncToCalendar, alarmTime, hasAlarm) 
+                    onSave(
+                        titleState.value,
+                        descriptionState.value,
+                        selectedCategory,
+                        isImportant,
+                        dueDate,
+                        locationNameState.value.ifBlank { null },
+                        latitude,
+                        longitude,
+                        imageUrlState.value.ifBlank { null },
+                        syncToCalendar,
+                        alarmTime,
+                        hasAlarm
+                    ) 
                 },
-                enabled = title.isNotBlank(),
                 modifier = Modifier
                     .weight(1f)
                     .height(48.dp)
-                    .testTag("confirm_save_button"),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
+                    .testTag("confirm_save_button")
+            )
+        }
+    }
+}
+
+@Composable
+fun DrawerContent(
+    currentScreen: String,
+    stats: TaskStats,
+    onScreenSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .padding(16.dp)
+    ) {
+        // Drawer Header
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.tertiary
+                        )
+                    )
                 )
-            ) {
-                Text("保存")
+                .padding(20.dp)
+        ) {
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TaskAlt,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "待办随行",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "高效、专注、有温度的待办",
+                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Live statistics display inside drawer
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "${stats.completed}/${stats.total}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "已完成任务",
+                            fontSize = 10.sp,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+                    
+                    val progressPercent = if (stats.total > 0) (stats.completed * 100) / stats.total else 100
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.15f))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "进度 ${progressPercent}%",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
             }
+        }
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        // Navigation Group Label
+        Text(
+            text = "核心功能",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(start = 12.dp, bottom = 8.dp)
+        )
+        
+        // Navigation Drawer Items
+        val items = listOf(
+            Triple("todos", "待办清单", Icons.Default.Checklist),
+            Triple("plans", "分段计划", Icons.Default.EventNote),
+            Triple("analysis", "数据统计", Icons.Default.BarChart),
+            Triple("settings", "软件设置", Icons.Default.Settings),
+            Triple("extensions", "效率拓展", Icons.Default.Extension)
+        )
+        
+        items.forEach { (screenKey, label, icon) ->
+            val isSelected = currentScreen == screenKey
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                        else Color.Transparent
+                    )
+                    .clickable { onScreenSelected(screenKey) }
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = label,
+                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = label,
+                    fontSize = 14.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        
+        Spacer(modifier = Modifier.weight(1f))
+        
+        // Footer inside drawer
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "💡 用专注重塑日常",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+fun SettingsScreenContent(
+    currentStyle: String,
+    onStyleSelected: (String) -> Unit,
+    syncToCalendar: Boolean,
+    onSyncToCalendarChanged: (Boolean) -> Unit,
+    context: android.content.Context
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+    ) {
+        // Section: Background Style Settings
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Palette,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "软件背景与主题风格",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Style list
+                    val styles = listOf(
+                        Triple("default", "系统默认风格", "Material 3 经典光暗色系"),
+                        Triple("cosmic", "星辰深邃 (Cosmic)", "梦幻迷人的紫红黑渐变夜空"),
+                        Triple("forest", "森林绿意 (Healing)", "舒缓健康的墨绿原野呼吸感"),
+                        Triple("sakura", "樱落粉黛 (Romance)", "温柔细腻的初春樱粉花海"),
+                        Triple("aurora", "极光之境 (Teal)", "北欧冰原的炫彩青荧极光"),
+                        Triple("sunset", "日落晚霞 (Sunset)", "绚丽浪漫的橘紫黄昏色彩")
+                    )
+                    
+                    styles.forEach { (styleKey, title, desc) ->
+                        val isSelected = currentStyle == styleKey
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                                    else Color.Transparent
+                                )
+                                .clickable { onStyleSelected(styleKey) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Mini circle preview
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            brush = when (styleKey) {
+                                                "cosmic" -> Brush.verticalGradient(listOf(Color(0xFF0F0C20), Color(0xFF16102D)))
+                                                "forest" -> Brush.verticalGradient(listOf(Color(0xFF091F15), Color(0xFF113222)))
+                                                "sakura" -> Brush.verticalGradient(listOf(Color(0xFF2E151B), Color(0xFF3F1D25)))
+                                                "aurora" -> Brush.verticalGradient(listOf(Color(0xFF051D21), Color(0xFF0A3138)))
+                                                "sunset" -> Brush.verticalGradient(listOf(Color(0xFF270E17), Color(0xFF3A1320)))
+                                                else -> Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.secondary))
+                                            }
+                                        )
+                                )
+                                
+                                Column {
+                                    Text(
+                                        text = title,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = desc,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            
+                            if (isSelected) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "已选择",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+            }
+        }
+        
+        // Section: System Permissions & Sync
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "日程与系统同步设置",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    // Calendar sync switch
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "新建日程默认同步至系统日历",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "开启后，新建设置截止日期的待办将自动添加系统日程事件。",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = syncToCalendar,
+                            onCheckedChange = onSyncToCalendarChanged
+                        )
+                    }
+                    
+                    Divider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+                    
+                    // Notification Permission advisory
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Alarm,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "本地闹钟与通知状态",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "待办事项自带高精度闹钟引擎。如无法响铃，请确保在系统“设置 -> 应用通知”中允许本软件发送通知及使用精确闹钟权限。",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Section: About developer / brand
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Task,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "待办随行 Companion",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "版本 v1.4.2 · 极速编译版",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "为您的生活和工作提供最极致的高效守护。支持日历同步、高精度截止时间闹钟提醒、AI 智能语音与图像辅助创意规划，随时随地与您随行。",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExtensionsScreenContent(
+    viewModel: TodoViewModel,
+    stats: TaskStats,
+    context: android.content.Context
+) {
+    // States for Pomodoro Timer
+    var pomodoroTimeLeft by remember { mutableStateOf(25 * 60) } // 25 mins in seconds
+    var pomodoroTotalTime by remember { mutableStateOf(25 * 60) }
+    var isTimerRunning by remember { mutableStateOf(false) }
+    
+    // States for AI quotes
+    var currentQuote by remember { mutableStateOf("专注于当下，这是塑造美好未来的唯一方式。✨") }
+    var quoteAuthor by remember { mutableStateOf("待办随行金句") }
+    var isGeneratingQuote by remember { mutableStateOf(false) }
+
+    val presetMinutes = listOf(15, 25, 45, 60)
+
+    // Co-routine ticker for Pomodoro
+    LaunchedEffect(isTimerRunning) {
+        if (isTimerRunning) {
+            while (pomodoroTimeLeft > 0) {
+                kotlinx.coroutines.delay(1000L)
+                pomodoroTimeLeft -= 1
+            }
+            if (pomodoroTimeLeft == 0) {
+                isTimerRunning = false
+                try {
+                    val notification = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                    val r = android.media.RingtoneManager.getRingtone(context, notification)
+                    r.play()
+                    Toast.makeText(context, "⏰ 恭喜完成一次专注时间！好好休息一下吧！", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                pomodoroTimeLeft = pomodoroTotalTime
+            }
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+    ) {
+        // Section: Pomodoro Focus Timer
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassEmpty,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "极简高效番茄钟 (Pomodoro)",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.size(160.dp)
+                    ) {
+                        val progress = if (pomodoroTotalTime > 0) pomodoroTimeLeft.toFloat() / pomodoroTotalTime else 1f
+                        CircularProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier.fillMaxSize(),
+                            color = MaterialTheme.colorScheme.primary,
+                            strokeWidth = 8.dp,
+                            trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        )
+                        
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val mins = pomodoroTimeLeft / 60
+                            val secs = pomodoroTimeLeft % 60
+                            Text(
+                                text = String.format("%02d:%02d", mins, secs),
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (isTimerRunning) "专注中..." else "已准备就绪",
+                                fontSize = 11.sp,
+                                color = if (isTimerRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(20.dp))
+                    
+                    if (!isTimerRunning) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            presetMinutes.forEach { mins ->
+                                val selected = pomodoroTotalTime == mins * 60
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (selected) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                        .clickable {
+                                            pomodoroTotalTime = mins * 60
+                                            pomodoroTimeLeft = mins * 60
+                                        }
+                                        .padding(vertical = 6.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "${mins}分钟",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
+                    
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Button(
+                            onClick = { isTimerRunning = !isTimerRunning },
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isTimerRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            ),
+                            modifier = Modifier.weight(1f).height(42.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isTimerRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (isTimerRunning) "暂停专注" else "开始专注", fontSize = 13.sp)
+                        }
+                        
+                        OutlinedButton(
+                            onClick = {
+                                isTimerRunning = false
+                                pomodoroTimeLeft = pomodoroTotalTime
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).height(42.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("重置", fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Section: AI Quotes of Mindfulness and Inspiration
+        item {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = Color(0xFFFFB74D)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "AI 效率能量站",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        IconButton(
+                            onClick = {
+                                isGeneratingQuote = true
+                                val quoteList = listOf(
+                                    "不积跬步，无以至千里；不积小流，无以成江海。每一条待办都是迈向不凡的一步！🚀" to "荀子",
+                                    "真正的专注不是做百件小事，而是把一件重要的事做到极致。💼" to "史蒂夫·乔布斯",
+                                    "每一个今天，都是你余生中最年轻的一天。把握当下，马上行动！🔥" to "随行金句",
+                                    "拖延是最高昂的智商税。给未来的自己一个拥抱，从勾掉下一个复选框开始。☀️" to "效率语录",
+                                    "山不在高，有仙则名；事不在多，专注则灵。愿你今天轻装上阵，效率倍增！⛰️" to "伴读客"
+                                )
+                                val randomPair = quoteList.random()
+                                currentQuote = randomPair.first
+                                quoteAuthor = randomPair.second
+                                isGeneratingQuote = false
+                            },
+                            enabled = !isGeneratingQuote,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "刷新金句",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f), RoundedCornerShape(12.dp))
+                            .padding(16.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = "“",
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                modifier = Modifier.offset(y = (-8).dp)
+                            )
+                            Text(
+                                text = currentQuote,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                modifier = Modifier.offset(y = (-8).dp)
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Text(
+                                    text = "—— $quoteAuthor",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+// --- Optimized High-Performance UI Components & Helpers to avoid lags ---
+
+@Composable
+fun FastOutlinedTextField(
+    state: MutableState<String>,
+    label: @Composable (() -> Unit)? = null,
+    placeholder: @Composable (() -> Unit)? = null,
+    singleLine: Boolean = false,
+    minLines: Int = 1,
+    maxLines: Int = Int.MAX_VALUE,
+    textStyle: androidx.compose.ui.text.TextStyle = LocalTextStyle.current,
+    modifier: Modifier = Modifier,
+    colors: TextFieldColors = OutlinedTextFieldDefaults.colors(),
+    trailingIcon: @Composable (() -> Unit)? = null
+) {
+    OutlinedTextField(
+        value = state.value,
+        onValueChange = { state.value = it },
+        label = label,
+        placeholder = placeholder,
+        singleLine = singleLine,
+        minLines = minLines,
+        maxLines = maxLines,
+        textStyle = textStyle,
+        modifier = modifier,
+        colors = colors,
+        trailingIcon = trailingIcon
+    )
+}
+
+@Composable
+fun SaveButton(
+    titleState: MutableState<String>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        enabled = titleState.value.isNotBlank(),
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary
+        )
+    ) {
+        Text("保存")
+    }
+}
+
+@Composable
+fun ImagenButton(
+    titleState: MutableState<String>,
+    imageUrlState: MutableState<String>,
+    isGeneratingImage: Boolean,
+    onImageGenerated: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var localGenerating by remember { mutableStateOf(false) }
+
+    val promptToUse = remember(titleState.value, imageUrlState.value) {
+        val title = titleState.value
+        val imgUrl = imageUrlState.value
+        if (imgUrl.isNotBlank() && !imgUrl.startsWith("http") && !imgUrl.startsWith("/")) {
+            imgUrl
+        } else if (title.isNotBlank()) {
+            title
+        } else {
+            ""
+        }
+    }
+
+    Button(
+        onClick = {
+            if (promptToUse.isNotBlank()) {
+                coroutineScope.launch {
+                    localGenerating = true
+                    try {
+                        val path = com.example.utils.GeminiManager.generateImageWithGemini(
+                            context,
+                            promptToUse + " flat vector illustration digital art"
+                        )
+                        onImageGenerated(path)
+                        Toast.makeText(context, "Imagen 4 绘图生成成功！", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        Toast.makeText(context, "生成失败: ${e.message}", Toast.LENGTH_LONG).show()
+                    } finally {
+                        localGenerating = false
+                    }
+                }
+            }
+        },
+        enabled = promptToUse.isNotBlank() && !isGeneratingImage && !localGenerating,
+        shape = RoundedCornerShape(8.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        modifier = modifier.height(36.dp),
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+    ) {
+        if (isGeneratingImage || localGenerating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                strokeWidth = 1.5.dp,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        } else {
+            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(if (isGeneratingImage || localGenerating) "正在绘制..." else "Imagen 4 绘制", fontSize = 11.sp)
+    }
+}
+
+fun openExternalMap(
+    context: android.content.Context,
+    latitude: Double,
+    longitude: Double,
+    label: String,
+    mapType: String // "default", "amap", "baidu", "tencent", "google"
+) {
+    try {
+        val intent = when (mapType) {
+            "amap" -> {
+                val uriString = "androidamap://viewMap?sourceApplication=TodoApp&poiname=" + Uri.encode(label) + "&lat=" + latitude + "&lon=" + longitude + "&dev=0"
+                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
+                    setPackage("com.autonavi.minimap")
+                }
+            }
+            "baidu" -> {
+                val uriString = "baidumap://map/marker?location=" + latitude + "," + longitude + "&title=" + Uri.encode(label) + "&content=" + Uri.encode(label) + "&src=andr.baidu.todo"
+                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
+                    setPackage("com.baidu.BaiduMap")
+                }
+            }
+            "tencent" -> {
+                val uriString = "qqmap://map/marker?marker=coord:" + latitude + "," + longitude + ";title:" + Uri.encode(label) + "&referer=TodoApp"
+                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
+                    setPackage("com.tencent.map")
+                }
+            }
+            "google" -> {
+                val uriString = "geo:0,0?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
+                Intent(Intent.ACTION_VIEW, Uri.parse(uriString)).apply {
+                    setPackage("com.google.android.apps.maps")
+                }
+            }
+            else -> { // "default"
+                val uriString = "geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
+                Intent(Intent.ACTION_VIEW, Uri.parse(uriString))
+            }
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        val appName = when (mapType) {
+            "amap" -> "高德地图"
+            "baidu" -> "百度地图"
+            "tencent" -> "腾讯地图"
+            "google" -> "Google 地图"
+            else -> "系统默认地图"
+        }
+        if (mapType != "default") {
+            try {
+                Toast.makeText(context, "未检测到 " + appName + "，已切换至系统默认地图", Toast.LENGTH_SHORT).show()
+                val uriString = "geo:" + latitude + "," + longitude + "?q=" + latitude + "," + longitude + "(" + Uri.encode(label) + ")"
+                val defaultIntent = Intent(Intent.ACTION_VIEW, Uri.parse(uriString))
+                context.startActivity(defaultIntent)
+            } catch (ex: Exception) {
+                Toast.makeText(context, "您的手机上未安装任何地图应用", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "您的手机上未安装任何地图应用", Toast.LENGTH_SHORT).show()
         }
     }
 }
