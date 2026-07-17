@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.Manifest
 import android.content.Intent
 import android.net.Uri
@@ -45,6 +46,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -634,7 +636,7 @@ fun TodoScreen(
         ) {
             AddEditTodoContent(
                 editingItem = editingItem,
-                onSave = { title, description, category, isImportant, dueDate, locationName, latitude, longitude, imageUrl, syncToCalendar ->
+                onSave = { title, description, category, isImportant, dueDate, locationName, latitude, longitude, imageUrl, syncToCalendar, alarmTime, hasAlarm ->
                     if (editingItem != null) {
                         viewModel.updateTodo(
                             editingItem!!.copy(
@@ -646,7 +648,9 @@ fun TodoScreen(
                                 locationName = locationName,
                                 latitude = latitude,
                                 longitude = longitude,
-                                imageUrl = imageUrl
+                                imageUrl = imageUrl,
+                                alarmTime = alarmTime,
+                                hasAlarm = hasAlarm
                             ),
                             syncToCalendar = syncToCalendar
                         )
@@ -661,7 +665,9 @@ fun TodoScreen(
                             latitude = latitude,
                             longitude = longitude,
                             imageUrl = imageUrl,
-                            syncToCalendar = syncToCalendar
+                            syncToCalendar = syncToCalendar,
+                            alarmTime = alarmTime,
+                            hasAlarm = hasAlarm
                         )
                     }
                     showAddSheet = false
@@ -1109,7 +1115,7 @@ fun EmptyStateView(
 @Composable
 fun AddEditTodoContent(
     editingItem: TodoItem?,
-    onSave: (title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, locationName: String?, latitude: Double?, longitude: Double?, imageUrl: String?, syncToCalendar: Boolean) -> Unit,
+    onSave: (title: String, description: String, category: String, isImportant: Boolean, dueDate: Long?, locationName: String?, latitude: Double?, longitude: Double?, imageUrl: String?, syncToCalendar: Boolean, alarmTime: Long?, hasAlarm: Boolean) -> Unit,
     onCancel: () -> Unit
 ) {
     var title by remember { mutableStateOf(editingItem?.title ?: "") }
@@ -1123,8 +1129,41 @@ fun AddEditTodoContent(
     var longitude by remember { mutableStateOf(editingItem?.longitude) }
     var showMapPicker by remember { mutableStateOf(false) }
 
+    var hasAlarm by remember { mutableStateOf(editingItem?.hasAlarm ?: false) }
+    var alarmTime by remember { mutableStateOf(editingItem?.alarmTime) }
+    var setSystemAlarmToo by remember { mutableStateOf(false) }
+
+    // Auto-fill alarmTime if hasAlarm is enabled and alarmTime is null, using dueDate as default
+    LaunchedEffect(hasAlarm) {
+        if (hasAlarm && alarmTime == null) {
+            alarmTime = dueDate ?: (System.currentTimeMillis() + 3600000) // 1 hour from now as default if no due date
+        }
+    }
+
     val context = LocalContext.current
     var syncToCalendar by remember { mutableStateOf(editingItem?.calendarEventId != null) }
+
+    val coroutineScope = rememberCoroutineScope()
+    var isGeneratingImage by remember { mutableStateOf(false) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val file = java.io.File(context.cacheDir, "upload_img_${System.currentTimeMillis()}.jpg")
+                java.io.FileOutputStream(file).use { out ->
+                    inputStream?.copyTo(out)
+                }
+                imageUrl = file.absolutePath
+                Toast.makeText(context, "图片上传成功！", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                e.printStackTrace()
+                Toast.makeText(context, "图片加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val calendarPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -1409,10 +1448,135 @@ fun AddEditTodoContent(
         }
 
         Spacer(modifier = Modifier.height(16.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+                .clickable {
+                    hasAlarm = !hasAlarm
+                }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.NotificationsActive,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "设置日程闹钟",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (hasAlarm && alarmTime != null) {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            "⏰ 响铃于: ${sdf.format(Date(alarmTime!!))}"
+                        } else {
+                            "截止时间或指定时间响铃提醒"
+                        },
+                        fontSize = 11.sp,
+                        color = if (hasAlarm) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Switch(
+                checked = hasAlarm,
+                onCheckedChange = { hasAlarm = it },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = MaterialTheme.colorScheme.tertiary,
+                    checkedTrackColor = MaterialTheme.colorScheme.tertiaryContainer
+                )
+            )
+        }
+
+        // Expanded alarm settings
+        if (hasAlarm) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Change alarm time button
+                Button(
+                    onClick = {
+                        val calendar = Calendar.getInstance()
+                        alarmTime?.let { calendar.timeInMillis = it }
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, dayOfMonth ->
+                                TimePickerDialog(
+                                    context,
+                                    { _, hourOfDay, minute ->
+                                        val selectedCal = Calendar.getInstance().apply {
+                                            set(Calendar.YEAR, year)
+                                            set(Calendar.MONTH, month)
+                                            set(Calendar.DAY_OF_MONTH, dayOfMonth)
+                                            set(Calendar.HOUR_OF_DAY, hourOfDay)
+                                            set(Calendar.MINUTE, minute)
+                                            set(Calendar.SECOND, 0)
+                                        }
+                                        alarmTime = selectedCal.timeInMillis
+                                    },
+                                    calendar.get(Calendar.HOUR_OF_DAY),
+                                    calendar.get(Calendar.MINUTE),
+                                    true
+                                ).show()
+                            },
+                            calendar.get(Calendar.YEAR),
+                            calendar.get(Calendar.MONTH),
+                            calendar.get(Calendar.DAY_OF_MONTH)
+                        ).show()
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    modifier = Modifier.weight(1f).height(36.dp)
+                ) {
+                    Icon(Icons.Default.AccessTime, null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("修改闹钟响铃时间", fontSize = 11.sp)
+                }
+
+                // System alarm integration checkbox
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { setSystemAlarmToo = !setSystemAlarmToo }
+                        .padding(horizontal = 4.dp)
+                ) {
+                    Checkbox(
+                        checked = setSystemAlarmToo,
+                        onCheckedChange = { setSystemAlarmToo = it },
+                        colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.tertiary)
+                    )
+                    Text("同步至系统闹钟", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // Task Image Cover section
         Text(
-            text = "配图封面 (Nanobanana)",
+            text = "配图封面 (本地/AI 生成)",
             fontSize = 14.sp,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1459,8 +1623,8 @@ fun AddEditTodoContent(
                 OutlinedTextField(
                     value = imageUrl,
                     onValueChange = { imageUrl = it },
-                    label = { Text("配图 URL") },
-                    placeholder = { Text("输入图片 URL 或生成") },
+                    label = { Text("配图 URL/本地路径") },
+                    placeholder = { Text("输入图片 URL/路径或生成") },
                     singleLine = true,
                     textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp),
                     modifier = Modifier.fillMaxWidth(),
@@ -1477,27 +1641,74 @@ fun AddEditTodoContent(
                     }
                 )
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(8.dp))
 
-                Button(
-                    onClick = {
-                        if (title.isNotBlank()) {
-                            val encodedPrompt = java.net.URLEncoder.encode(title + " flat vector illustration digital art", "UTF-8")
-                            imageUrl = "https://api.nanobanana.im/image?prompt=$encodedPrompt&width=512&height=512"
-                        }
-                    },
-                    enabled = title.isNotBlank(),
-                    shape = RoundedCornerShape(8.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ),
-                    modifier = Modifier.fillMaxWidth().height(36.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("智能生成 Nanobanana 绘图", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    // Upload button
+                    Button(
+                        onClick = {
+                            imagePickerLauncher.launch("image/*")
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        ),
+                        modifier = Modifier.weight(1f).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Icon(Icons.Default.Image, null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("本地上传", fontSize = 11.sp)
+                    }
+
+                    // Direct Gemini Imagen Button
+                    val promptToUse = if (imageUrl.isNotBlank() && !imageUrl.startsWith("http") && !imageUrl.startsWith("/")) {
+                        imageUrl
+                    } else if (title.isNotBlank()) {
+                        title
+                    } else {
+                        ""
+                    }
+
+                    Button(
+                        onClick = {
+                            if (promptToUse.isNotBlank()) {
+                                coroutineScope.launch {
+                                    isGeneratingImage = true
+                                    try {
+                                        val path = com.example.utils.GeminiManager.generateImageWithGemini(context, promptToUse + " flat vector illustration digital art")
+                                        imageUrl = path
+                                        Toast.makeText(context, "Imagen 4 绘图生成成功！", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        Toast.makeText(context, "生成失败: ${e.message}", Toast.LENGTH_LONG).show()
+                                    } finally {
+                                        isGeneratingImage = false
+                                    }
+                                }
+                            }
+                        },
+                        enabled = promptToUse.isNotBlank() && !isGeneratingImage,
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        modifier = Modifier.weight(1.2f).height(36.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        if (isGeneratingImage) {
+                            CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        } else {
+                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+                        }
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (isGeneratingImage) "正在绘制..." else "Imagen 4 绘制", fontSize = 11.sp)
+                    }
                 }
             }
         }
@@ -1656,7 +1867,18 @@ fun AddEditTodoContent(
             }
 
             Button(
-                onClick = { onSave(title, description, selectedCategory, isImportant, dueDate, locationName.ifBlank { null }, latitude, longitude, imageUrl.ifBlank { null }, syncToCalendar) },
+                onClick = { 
+                    if (hasAlarm && alarmTime != null && setSystemAlarmToo) {
+                        val cal = Calendar.getInstance().apply { timeInMillis = alarmTime!! }
+                        com.example.utils.AlarmScheduler.createSystemAlarm(
+                            context = context,
+                            title = title,
+                            hour = cal.get(Calendar.HOUR_OF_DAY),
+                            minute = cal.get(Calendar.MINUTE)
+                        )
+                    }
+                    onSave(title, description, selectedCategory, isImportant, dueDate, locationName.ifBlank { null }, latitude, longitude, imageUrl.ifBlank { null }, syncToCalendar, alarmTime, hasAlarm) 
+                },
                 enabled = title.isNotBlank(),
                 modifier = Modifier
                     .weight(1f)

@@ -17,5 +17,7 @@ data class TodoItem(
     val locationName: String? = null,
     val latitude: Double? = null,
     val longitude: Double? = null,
-    val imageUrl: String? = null
+    val imageUrl: String? = null,
+    val alarmTime: Long? = null,
+    val hasAlarm: Boolean = false
 )

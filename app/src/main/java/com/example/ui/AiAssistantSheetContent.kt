@@ -833,6 +833,68 @@ fun AiAssistantSheetContent(
                                 }
                             }
                         }
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        var todoTitle by remember { mutableStateOf("画作: ${art.style}") }
+                        var selectedCategory by remember { mutableStateOf("生活") }
+                        var showSuccessMsg by remember { mutableStateOf(false) }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text("将此画作保存为待办配图", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                OutlinedTextField(
+                                    value = todoTitle,
+                                    onValueChange = { todoTitle = it; showSuccessMsg = false },
+                                    label = { Text("待办任务标题", fontSize = 11.sp) },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("分类:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    listOf("生活", "个人", "工作", "学习").forEach { cat ->
+                                        FilterChip(
+                                            selected = selectedCategory == cat,
+                                            onClick = { selectedCategory = cat },
+                                            label = { Text(cat, fontSize = 11.sp) }
+                                        )
+                                    }
+                                }
+                                
+                                Spacer(modifier = Modifier.height(12.dp))
+                                
+                                Button(
+                                    onClick = {
+                                        viewModel.importProceduralArtAsTodo(todoTitle, selectedCategory, art)
+                                        showSuccessMsg = true
+                                        onDismiss() // Dismiss and go back to main todo list
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(Icons.Default.Save, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("保存并插入到待办列表")
+                                }
+                                
+                                if (showSuccessMsg) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("✅ 已成功保存画作并添加到待办任务！", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterHorizontally))
+                                }
+                            }
+                        }
                     }
                 }
             } else {

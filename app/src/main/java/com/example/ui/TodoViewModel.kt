@@ -95,7 +95,9 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         latitude: Double? = null,
         longitude: Double? = null,
         imageUrl: String? = null,
-        syncToCalendar: Boolean = false
+        syncToCalendar: Boolean = false,
+        alarmTime: Long? = null,
+        hasAlarm: Boolean = false
     ) {
         viewModelScope.launch {
             if (title.isNotBlank()) {
@@ -109,7 +111,9 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                     locationName = locationName?.trim()?.ifEmpty { null },
                     latitude = latitude,
                     longitude = longitude,
-                    imageUrl = imageUrl
+                    imageUrl = imageUrl,
+                    alarmTime = alarmTime,
+                    hasAlarm = hasAlarm
                 )
                 
                 if (syncToCalendar && dueDate != null) {
@@ -117,7 +121,13 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 val item = tempItem.copy(calendarEventId = calendarEventId)
-                repository.insert(item)
+                val rowId = repository.insert(item)
+                val finalItem = item.copy(id = rowId.toInt())
+                
+                if (finalItem.hasAlarm && finalItem.alarmTime != null) {
+                    com.example.utils.AlarmScheduler.scheduleAlarm(getApplication(), finalItem)
+                }
+                
                 TodoAppWidgetProvider.updateAllWidgets(getApplication())
             }
         }
@@ -138,6 +148,13 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             }
             
             repository.update(updatedItem)
+            
+            if (updatedItem.hasAlarm && updatedItem.alarmTime != null && !updatedItem.isCompleted) {
+                com.example.utils.AlarmScheduler.scheduleAlarm(context, updatedItem)
+            } else {
+                com.example.utils.AlarmScheduler.cancelAlarm(context, updatedItem)
+            }
+            
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }
@@ -149,6 +166,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                 CalendarSyncHelper.updateTodoInCalendar(getApplication(), updated)
             }
             repository.update(updated)
+            
+            val context = getApplication<android.app.Application>()
+            if (updated.isCompleted) {
+                com.example.utils.AlarmScheduler.cancelAlarm(context, updated)
+            } else if (updated.hasAlarm && updated.alarmTime != null) {
+                com.example.utils.AlarmScheduler.scheduleAlarm(context, updated)
+            }
+            
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }
@@ -169,6 +194,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             item.calendarEventId?.let { eventId ->
                 CalendarSyncHelper.deleteTodoFromCalendar(getApplication(), eventId)
             }
+            com.example.utils.AlarmScheduler.cancelAlarm(getApplication(), item)
             repository.delete(item)
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
@@ -181,6 +207,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                 item.calendarEventId?.let { eventId ->
                     CalendarSyncHelper.deleteTodoFromCalendar(getApplication(), eventId)
                 }
+                com.example.utils.AlarmScheduler.cancelAlarm(getApplication(), item)
             }
             repository.deleteCompleted()
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
@@ -291,6 +318,24 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             }
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
             clearAiGeneratedItems()
+        }
+    }
+
+    fun importProceduralArtAsTodo(title: String, category: String, art: com.example.utils.GeneratedImageArt) {
+        viewModelScope.launch {
+            val context = getApplication<Application>()
+            val localPath = com.example.utils.saveProceduralArtToCache(context, art)
+            if (localPath != null) {
+                val todo = TodoItem(
+                    title = title.ifBlank { "AI 艺术画作: ${art.style}" },
+                    description = "基于灵感「${art.prompt}」智能生成的艺术画作封面",
+                    category = category,
+                    isImportant = false,
+                    imageUrl = localPath
+                )
+                repository.insert(todo)
+                TodoAppWidgetProvider.updateAllWidgets(context)
+            }
         }
     }
 
