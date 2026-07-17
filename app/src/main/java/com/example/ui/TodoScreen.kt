@@ -1351,12 +1351,30 @@ fun TodoItemRow(
                         }
 
                         if (item.latitude != null && item.longitude != null) {
-                            Icon(
-                                imageVector = Icons.Default.LocationOn,
-                                contentDescription = "有位置",
-                                tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.6f),
-                                modifier = Modifier.size(10.dp)
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { onNavigate() }
+                                    .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.2f))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "有位置与导航",
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.size(10.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = item.locationName ?: "查看位置",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.widthIn(max = 60.dp)
+                                )
+                            }
                         }
                     }
                 }
