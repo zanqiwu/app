@@ -395,6 +395,91 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         aiGeneratedActions.value = emptyList()
         aiError.value = null
     }
+
+    // Expose all items flow for weekly report selection
+    val allTodoItems: StateFlow<List<TodoItem>> = repository.allItems.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    // Weekly Report states
+    val weeklyReportContent = MutableStateFlow<String?>(null)
+    val weeklyReportLoading = MutableStateFlow(false)
+    val weeklyReportError = MutableStateFlow<String?>(null)
+
+    fun generateWeeklyReport(context: android.content.Context, tasks: List<TodoItem>, customPrompt: String, summaryStyle: String) {
+        viewModelScope.launch {
+            weeklyReportLoading.value = true
+            weeklyReportError.value = null
+            weeklyReportContent.value = null
+            try {
+                if (tasks.isEmpty()) {
+                    throw IllegalArgumentException("请选择或提供至少一个已完成的任务来进行周报生成！")
+                }
+                
+                val taskListString = tasks.mapIndexed { index, item ->
+                    "- [${item.category}] ${item.title}" + if (item.description.isNotBlank()) " (${item.description})" else ""
+                }.joinToString("\n")
+                
+                val styleDesc = when (summaryStyle) {
+                    "detailed" -> "详细且富有条理（包括任务背景、实施细节、后续计划）"
+                    "concise" -> "精炼且重点突出（只提核心产出、关键数据，字数控制在200字以内）"
+                    "work" -> "专业职场风格（使用书面的、职业化的词汇，突出KPI与业务价值）"
+                    else -> "标准周报格式（按分类整理本周工作，条理清晰）"
+                }
+
+                val prompt = """
+                    请根据以下本周完成的任务，撰写一份结构完整、逻辑清晰的周报。
+                    
+                    ### 本周完成的任务列表:
+                    $taskListString
+                    
+                    ### 周报撰写风格与要求:
+                    - 撰写风格: $styleDesc
+                    - 用户附加自定义偏好/指令: ${if (customPrompt.isBlank()) "无" else customPrompt}
+                    
+                    ### 周报结构规范 (请根据风格适当微调):
+                    1. ✨ 本周工作总结：按分类或模块梳理已完成的任务及其产出/业务价值。
+                    2. 📈 核心成果亮点：挑选1-2个最重要或最有成效的成果进行重点说明。
+                    3. 🔮 下周工作计划：基于本周的成果，合理推测并规划下周需要跟进或启动的工作。
+                    4. 💡 个人反思与建议（可选）：简短说明本周遇到的挑战、解决方案或改进建议。
+                    
+                    请直接输出周报内容，不需要任何前言或总结性的寒暄。
+                """.trimIndent()
+                
+                val request = com.example.utils.GeminiRequest(
+                    contents = listOf(
+                        com.example.utils.GeminiContent(
+                            parts = listOf(com.example.utils.GeminiPart(text = prompt))
+                        )
+                    ),
+                    generationConfig = com.example.utils.GeminiGenerationConfig(
+                        temperature = 0.6f
+                    )
+                )
+                
+                val response = com.example.utils.GeminiManager.generateWithFallback(context, request, "gemini-3.5-flash")
+                val resultText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                if (resultText != null) {
+                    weeklyReportContent.value = resultText
+                } else {
+                    weeklyReportError.value = "AI 生成的内容为空"
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                weeklyReportError.value = e.message ?: "生成周报时发生未知错误"
+            } finally {
+                weeklyReportLoading.value = false
+            }
+        }
+    }
+    
+    fun clearWeeklyReport() {
+        weeklyReportContent.value = null
+        weeklyReportError.value = null
+        weeklyReportLoading.value = false
+    }
 }
 
 data class TaskStats(

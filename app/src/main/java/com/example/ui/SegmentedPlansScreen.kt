@@ -532,7 +532,7 @@ fun PlanSectionCard(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .height(46.dp),
+                        .height(52.dp),
                     textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
                 )
 

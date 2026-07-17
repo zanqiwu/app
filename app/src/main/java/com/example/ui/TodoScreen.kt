@@ -13,6 +13,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -447,6 +449,9 @@ fun TodoScreen(
                 }
                 "plans" -> {
                     SegmentedPlansScreenContent(viewModel = viewModel)
+                }
+                "weekly_report" -> {
+                    WeeklyReportScreenContent(viewModel = viewModel)
                 }
                 "analysis" -> {
                     AnalysisScreenContent(viewModel = viewModel)
@@ -1573,6 +1578,7 @@ fun AddEditTodoContent(
         modifier = Modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 8.dp)
     ) {
         Text(
@@ -2367,6 +2373,7 @@ fun DrawerContent(
         val items = listOf(
             Triple("todos", "待办清单", Icons.Default.Checklist),
             Triple("plans", "分段计划", Icons.Default.EventNote),
+            Triple("weekly_report", "智能周报", Icons.Default.Article),
             Triple("analysis", "数据统计", Icons.Default.BarChart),
             Triple("settings", "软件设置", Icons.Default.Settings),
             Triple("extensions", "效率拓展", Icons.Default.Extension)
@@ -3143,6 +3150,566 @@ fun openExternalMap(
             }
         } else {
             Toast.makeText(context, "您的手机上未安装任何地图应用", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+fun WeeklyReportScreenContent(
+    viewModel: TodoViewModel,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val allItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val reportContent by viewModel.weeklyReportContent.collectAsStateWithLifecycle()
+    val reportLoading by viewModel.weeklyReportLoading.collectAsStateWithLifecycle()
+    val reportError by viewModel.weeklyReportError.collectAsStateWithLifecycle()
+
+    // Filter completed tasks
+    val completedTasks = remember(allItems) {
+        allItems.filter { it.isCompleted }
+    }
+
+    // Active Category Filter for completed tasks list
+    var selectedCategory by remember { mutableStateOf("全部") }
+    val categories = remember {
+        listOf("全部") + CategoryConfig.categories.filter { it.name != "全部" && it.name != "重要" }.map { it.name }
+    }
+
+    // Filtered tasks shown to the user
+    val displayedTasks = remember(completedTasks, selectedCategory) {
+        if (selectedCategory == "全部") {
+            completedTasks
+        } else {
+            completedTasks.filter { it.category == selectedCategory }
+        }
+    }
+
+    // Map of selected tasks to summarize
+    val selectedTaskIds = remember { mutableStateMapOf<Int, Boolean>() }
+
+    // Initialize/sync selections when displayedTasks changes
+    LaunchedEffect(displayedTasks) {
+        displayedTasks.forEach { task ->
+            if (!selectedTaskIds.containsKey(task.id)) {
+                selectedTaskIds[task.id] = true // select by default
+            }
+        }
+    }
+
+    var customPrompt by remember { mutableStateOf("") }
+    var summaryStyle by remember { mutableStateOf("standard") } // "standard", "concise", "detailed", "work"
+
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(bottom = 80.dp)
+    ) {
+        // Title banner
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                ),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Assessment,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "AI 智能周报生成",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Text(
+                            text = "选择完成的工作，AI 自动为你汇总精美的职场周报",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Selection & Tag filtering block
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "1. 挑选待总结任务",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    
+                    // Select All / Deselect All
+                    if (displayedTasks.isNotEmpty()) {
+                        val allSelected = displayedTasks.all { selectedTaskIds[it.id] == true }
+                        TextButton(
+                            onClick = {
+                                displayedTasks.forEach { task ->
+                                    selectedTaskIds[task.id] = !allSelected
+                                }
+                            },
+                            contentPadding = PaddingValues(0.dp)
+                        ) {
+                            Text(
+                                text = if (allSelected) "取消全选" else "全选本组",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Tags/Categories row filter
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(categories) { categoryName ->
+                        val isSelected = selectedCategory == categoryName
+                        val categoryConfig = CategoryConfig.categories.find { it.name == categoryName }
+                        val chipColor = categoryConfig?.color ?: MaterialTheme.colorScheme.primary
+                        
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { selectedCategory = categoryName },
+                            label = { Text(categoryName, fontSize = 11.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = chipColor.copy(alpha = 0.2f),
+                                selectedLabelColor = chipColor,
+                                selectedLeadingIconColor = chipColor
+                            )
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (completedTasks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.RadioButtonUnchecked,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(40.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "暂无已完成的任务，快去完成一些任务吧！",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
+                } else if (displayedTasks.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "该分类下暂无已完成的任务",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                    }
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        displayedTasks.forEach { task ->
+                            val isChecked = selectedTaskIds[task.id] ?: false
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
+                                    .clickable { selectedTaskIds[task.id] = !isChecked }
+                                    .padding(horizontal = 8.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = isChecked,
+                                    onCheckedChange = { selectedTaskIds[task.id] = it },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = task.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (task.description.isNotBlank()) {
+                                        Text(
+                                            text = task.description,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = task.category,
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Style preferences and instructions
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "2. 设定周报风格与附加要求",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                // Summary Style Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val styles = listOf(
+                        "standard" to "标准",
+                        "concise" to "精炼",
+                        "detailed" to "详细",
+                        "work" to "职场"
+                    )
+                    styles.forEach { (styleKey, label) ->
+                        val isSelected = summaryStyle == styleKey
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(
+                                    if (isSelected) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f)
+                                )
+                                .clickable { summaryStyle = styleKey }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                // Custom Prompt Textbox
+                OutlinedTextField(
+                    value = customPrompt,
+                    onValueChange = { customPrompt = it },
+                    placeholder = { Text("（可选）输入您希望补充的信息或周报撰写的特定指令（如：重点强调项目A进度、使用幽默风格、说明下周休假等）", fontSize = 11.sp) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    maxLines = 4,
+                    minLines = 2,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                    )
+                )
+
+                // Generate Button
+                val selectedTasks = completedTasks.filter { selectedTaskIds[it.id] == true }
+                Button(
+                    onClick = {
+                        viewModel.generateWeeklyReport(context, selectedTasks, customPrompt, summaryStyle)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("generate_weekly_report_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = selectedTasks.isNotEmpty() && !reportLoading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    if (reportLoading) {
+                        CircularProgressIndicator(
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("正在拼命撰写中...", fontSize = 14.sp)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (selectedTasks.isEmpty()) "请先勾选完成的任务" else "一键生成智能周报 (${selectedTasks.size}项)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        // Output Result Card
+        if (reportLoading || reportContent != null || reportError != null) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "3. 生成的周报内容",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        
+                        // Clear option
+                        if (reportContent != null) {
+                            TextButton(
+                                onClick = { viewModel.clearWeeklyReport() },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("清空内容", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+
+                    if (reportLoading) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.6f)
+                                    .height(6.dp)
+                                    .clip(CircleShape)
+                            )
+                            Text(
+                                text = "Gemini AI 正在梳理任务、整合逻辑并撰写专业措辞，这可能需要10-20秒时间...",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(horizontal = 24.dp),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+
+                    reportError?.let { err ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Column {
+                                    Text(
+                                        text = "周报生成遇到阻碍",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onErrorContainer
+                                    )
+                                    Text(
+                                        text = err,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.9f)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "💡 提示: 请确保在设置中配置了有效的 Gemini API Key。如果网络连接失败，请检查并重试。",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    reportContent?.let { content ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(14.dp)
+                            ) {
+                                androidx.compose.foundation.text.selection.SelectionContainer {
+                                    Text(
+                                        text = content,
+                                        fontSize = 13.sp,
+                                        lineHeight = 20.sp,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Quick Actions
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    // Copy Button
+                                    OutlinedButton(
+                                        onClick = {
+                                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                            val clip = android.content.ClipData.newPlainText("AI 周报", content)
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, "周报已复制到剪贴板！", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.ContentCopy,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("一键复制", fontSize = 12.sp)
+                                    }
+
+                                    // Share Button
+                                    Button(
+                                        onClick = {
+                                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                type = "text/plain"
+                                                putExtra(Intent.EXTRA_SUBJECT, "智能周报汇总")
+                                                putExtra(Intent.EXTRA_TEXT, content)
+                                            }
+                                            context.startActivity(Intent.createChooser(shareIntent, "分享周报到..."))
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Share,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("系统分享", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
