@@ -1,5 +1,12 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
+val xiaomiXmsAppId = providers.gradleProperty("XIAOMI_XMS_APP_ID")
+  .orElse(providers.environmentVariable("XIAOMI_XMS_APP_ID"))
+  .orElse("not_configured")
+val xiaomiIslandBusiness = providers.gradleProperty("XIAOMI_ISLAND_BUSINESS")
+  .orElse(providers.environmentVariable("XIAOMI_ISLAND_BUSINESS"))
+  .orElse("pomodoro")
+
 plugins {
   alias(libs.plugins.android.application)
   id("com.google.dagger.hilt.android")
@@ -18,8 +25,12 @@ android {
     applicationId = "com.aistudio.dailytodo.whkspr"
     minSdk = 26
     targetSdk = 36
-    versionCode = 5
-    versionName = "1.04"
+    versionCode = 6
+    versionName = "1.05"
+
+    manifestPlaceholders["xiaomiXmsAppId"] = xiaomiXmsAppId.get()
+    manifestPlaceholders["xiaomiXmsDebug"] = "false"
+    buildConfigField("String", "XIAOMI_ISLAND_BUSINESS", "\"${xiaomiIslandBusiness.get()}\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -47,7 +58,10 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    debug {
+      signingConfig = signingConfigs.getByName("debugConfig")
+      manifestPlaceholders["xiaomiXmsDebug"] = "true"
+    }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

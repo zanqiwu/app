@@ -61,6 +61,12 @@
         <meta-data
             android:name="com.baidu.lbsapi.API_KEY"
             android:value="feDx85pNhnhIKyv1DoqiL3XYvU3JLc7X" />
+        <meta-data
+            android:name="com.xiaomi.xms.APP_ID"
+            android:value="${xiaomiXmsAppId}" />
+        <meta-data
+            android:name="com.xiaomi.xms.BUILD_TYPE_DEBUG"
+            android:value="${xiaomiXmsDebug}" />
 
         <activity
             android:name=".MainActivity"

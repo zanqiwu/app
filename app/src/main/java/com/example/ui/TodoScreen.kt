@@ -54,12 +54,15 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.TodoItem
 import com.example.utils.PomodoroNotifier
+import com.example.utils.XiaomiSuperIsland
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -3006,13 +3009,27 @@ fun ExtensionsScreenContent(
 ) {
     val pomodoroState by viewModel.pomodoroState.collectAsStateWithLifecycle()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val statusScope = rememberCoroutineScope()
     var notificationChannelEnabled by remember {
         mutableStateOf(PomodoroNotifier.isRunningChannelEnabled(context))
     }
+    var os3IslandSupported by remember { mutableStateOf(false) }
+    var os3FocusPermission by remember { mutableStateOf(false) }
+    val refreshXiaomiStatus = {
+        statusScope.launch {
+            val status = withContext(Dispatchers.IO) {
+                XiaomiSuperIsland.isOs3Supported(context) to XiaomiSuperIsland.hasFocusPermission(context)
+            }
+            os3IslandSupported = status.first
+            os3FocusPermission = status.second
+        }
+    }
+    LaunchedEffect(Unit) { refreshXiaomiStatus() }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 notificationChannelEnabled = PomodoroNotifier.isRunningChannelEnabled(context)
+                refreshXiaomiStatus()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -3111,6 +3128,18 @@ fun ExtensionsScreenContent(
                         TextButton(onClick = { PomodoroNotifier.openRunningChannelSettings(context) }) {
                             Text("通知设置", fontSize = 11.sp)
                         }
+                    }
+                    if (os3IslandSupported) {
+                        Text(
+                            text = if (os3FocusPermission) {
+                                "小米超级岛：系统与焦点通知权限已就绪"
+                            } else {
+                                "小米超级岛：系统支持，应用尚未获得焦点通知授权"
+                            },
+                            fontSize = 11.sp,
+                            color = if (os3FocusPermission) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                     
                     Spacer(modifier = Modifier.height(12.dp))

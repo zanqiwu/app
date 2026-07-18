@@ -94,8 +94,11 @@ object PomodoroNotifier {
 
     fun buildRunningNotification(context: Context, state: PomodoroState): android.app.Notification {
         ensureChannels(context)
+        if (Build.VERSION.SDK_INT >= 36) {
+            return buildAndroid16ProgressNotification(context, state)
+        }
         val contentView = buildRunningContentView(context, state)
-        return NotificationCompat.Builder(context, RUNNING_CHANNEL_ID)
+        val notification = NotificationCompat.Builder(context, RUNNING_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("番茄钟进行中")
             .setContentText(formatRemainingText(state.remainingSeconds))
@@ -127,6 +130,50 @@ object PomodoroNotifier {
                     .build()
             )
             .build()
+        return XiaomiSuperIsland.addTimerData(context, notification, state)
+    }
+
+    @androidx.annotation.RequiresApi(36)
+    private fun buildAndroid16ProgressNotification(
+        context: Context,
+        state: PomodoroState
+    ): android.app.Notification {
+        val elapsed = (state.totalSeconds - state.remainingSeconds).coerceAtLeast(0)
+        val progress = if (state.totalSeconds > 0) {
+            (elapsed * 100 / state.totalSeconds).coerceIn(0, 100)
+        } else {
+            0
+        }
+        val progressStyle = android.app.Notification.ProgressStyle()
+            .setProgress(progress)
+            .setStyledByProgress(true)
+        val publicNotification = android.app.Notification.Builder(context, RUNNING_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("番茄钟专注中")
+            .setContentText(formatRemainingText(state.remainingSeconds))
+            .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
+            .setCategory("stopwatch")
+            .build()
+
+        val notification = android.app.Notification.Builder(context, RUNNING_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+            .setContentTitle("番茄钟专注中")
+            .setContentText(formatRemainingText(state.remainingSeconds))
+            .setContentIntent(mainActivityIntent(context))
+            .setWhen(state.endAtMillis)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .setStyle(progressStyle)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(true)
+            .setColor(ContextCompat.getColor(context, R.color.pomodoro_primary))
+            .setVisibility(android.app.Notification.VISIBILITY_PUBLIC)
+            .setCategory("stopwatch")
+            .setForegroundServiceBehavior(android.app.Notification.FOREGROUND_SERVICE_IMMEDIATE)
+            .setPublicVersion(publicNotification)
+            .build()
+        return XiaomiSuperIsland.addTimerData(context, notification, state)
     }
 
     fun updateRunningNotification(context: Context, state: PomodoroState) {

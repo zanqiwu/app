@@ -10,10 +10,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TodoDao {
-    @Query("SELECT * FROM todo_items ORDER BY isCompleted ASC, sortOrder ASC, createdAt DESC")
+    @Query("SELECT * FROM todo_items ORDER BY sortOrder ASC, createdAt DESC")
     fun getAllTodoItems(): Flow<List<TodoItem>>
 
-    @Query("SELECT * FROM todo_items ORDER BY isCompleted ASC, sortOrder ASC, createdAt DESC")
+    @Query("SELECT * FROM todo_items ORDER BY sortOrder ASC, createdAt DESC")
     fun getAllTodoItemsSync(): List<TodoItem>
 
     @Query("SELECT * FROM todo_items WHERE id = :id")
