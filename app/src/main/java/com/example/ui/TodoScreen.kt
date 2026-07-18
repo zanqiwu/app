@@ -478,7 +478,7 @@ fun TodoScreen(
                     AnalysisScreenContent(viewModel = viewModel)
                 }
                 "openclaw" -> {
-                    OpenDroidLauncherScreen()
+                    PokeClawLauncherScreen()
                 }
                 else -> {
                     // Stats Panel

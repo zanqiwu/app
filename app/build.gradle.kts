@@ -23,10 +23,10 @@ android {
 
   defaultConfig {
     applicationId = "com.aistudio.dailytodo.whkspr"
-    minSdk = 26
+    minSdk = 28
     targetSdk = 36
-    versionCode = 13
-    versionName = "1.12"
+    versionCode = 14
+    versionName = "1.13"
 
     manifestPlaceholders["xiaomiXmsAppId"] = xiaomiXmsAppId.get()
     manifestPlaceholders["xiaomiXmsDebug"] = "false"
@@ -64,12 +64,21 @@ android {
     }
   }
   compileOptions {
-    sourceCompatibility = JavaVersion.VERSION_11
-    targetCompatibility = JavaVersion.VERSION_11
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
   }
   buildFeatures {
     compose = true
     buildConfig = true
+  }
+  packaging {
+    resources.excludes += setOf(
+      "META-INF/DEPENDENCIES",
+      "META-INF/LICENSE",
+      "META-INF/LICENSE.txt",
+      "META-INF/NOTICE",
+      "META-INF/NOTICE.txt"
+    )
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
 }
@@ -102,7 +111,7 @@ googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.W
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
 dependencies {
-  implementation(project(":opendroid-agent"))
+  implementation(project(":pokeclaw-agent"))
   implementation(platform(libs.androidx.compose.bom))
   implementation(platform(libs.firebase.bom))
   // implementation(libs.accompanist.permissions)

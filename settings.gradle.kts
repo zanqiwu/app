@@ -8,6 +8,7 @@ pluginManagement {
       }
     }
     mavenCentral()
+    maven(url = "https://jitpack.io")
     gradlePluginPortal()
   }
 }
@@ -19,10 +20,11 @@ dependencyResolutionManagement {
   repositories {
     google()
     mavenCentral()
+    maven(url = "https://jitpack.io")
   }
 }
 
 rootProject.name = "TodoApp"
 
 include(":app")
-include(":opendroid-agent")
+include(":pokeclaw-agent")

@@ -1,7 +1,7 @@
 package com.example
 
-import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
+import io.agents.pokeclaw.ClawApplication
 
 @HiltAndroidApp
-class TodoApplication : Application()
+class TodoApplication : ClawApplication()
