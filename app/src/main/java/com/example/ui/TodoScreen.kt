@@ -3604,6 +3604,11 @@ fun WeeklyReportScreenContent(
             completedTasks.filter { it.category == selectedCategory }
         }
     }
+    var visibleTaskCount by remember { mutableIntStateOf(20) }
+    LaunchedEffect(selectedCategory) { visibleTaskCount = 20 }
+    val visibleTasks = remember(displayedTasks, visibleTaskCount) {
+        displayedTasks.take(visibleTaskCount)
+    }
 
     // Map of selected tasks to summarize
     val selectedTaskIds = remember { mutableStateMapOf<Int, Boolean>() }
@@ -3775,17 +3780,11 @@ fun WeeklyReportScreenContent(
                         )
                     }
                 } else {
-                    LazyColumn(
+                    Column(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height((displayedTasks.size * 64).coerceAtMost(320).dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        items(
-                            items = displayedTasks,
-                            key = { it.id },
-                            contentType = { "weekly_task" }
-                        ) { task ->
+                        visibleTasks.forEach { task ->
                             val isChecked = selectedTaskIds[task.id] ?: false
                             Row(
                                 modifier = Modifier
@@ -3837,6 +3836,17 @@ fun WeeklyReportScreenContent(
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
+                            }
+                        }
+                        if (visibleTasks.size < displayedTasks.size) {
+                            TextButton(
+                                onClick = { visibleTaskCount += 20 },
+                                modifier = Modifier.align(Alignment.CenterHorizontally)
+                            ) {
+                                Text(
+                                    "显示更多（剩余 ${displayedTasks.size - visibleTasks.size} 项）",
+                                    fontSize = 12.sp
+                                )
                             }
                         }
                     }

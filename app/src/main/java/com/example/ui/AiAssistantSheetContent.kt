@@ -180,7 +180,6 @@ fun AiAssistantSheetContent(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(12.dp))
                 .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f))
-                .animateContentSize()
         ) {
             Row(
                 modifier = Modifier

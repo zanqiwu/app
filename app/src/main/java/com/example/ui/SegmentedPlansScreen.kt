@@ -1,7 +1,5 @@
 package com.example.ui
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -152,7 +149,7 @@ fun SegmentedPlansScreenContent(
                 contentPadding = PaddingValues(bottom = 80.dp)
             ) {
                 // DAILY PLANS SECTION
-                item {
+                item(key = "today_section", contentType = "plan_section") {
                     TodayTodoPlanSectionCard(
                         title = "今日计划",
                         subtitle = todayFriendly,
@@ -166,7 +163,7 @@ fun SegmentedPlansScreenContent(
                 }
 
                 // WEEKLY PLANS SECTION
-                item {
+                item(key = "weekly_section", contentType = "plan_section") {
                     PlanSectionCard(
                         title = "本周计划",
                         subtitle = currentWeekFriendly,
@@ -181,7 +178,7 @@ fun SegmentedPlansScreenContent(
                 }
 
                 // MONTHLY PLANS SECTION
-                item {
+                item(key = "monthly_section", contentType = "plan_section") {
                     PlanSectionCard(
                         title = "本月计划",
                         subtitle = currentMonthFriendly,
@@ -241,9 +238,7 @@ fun SegmentedPlansScreenContent(
                             val completionRate = if (totalCount > 0) (completedCount * 100) / totalCount else 0
 
                             Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .animateItemPlacement(),
+                                modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(
                                     containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
@@ -290,7 +285,7 @@ fun SegmentedPlansScreenContent(
                                         )
                                     }
 
-                                    AnimatedVisibility(visible = isExpanded) {
+                                    if (isExpanded) {
                                         Column(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -369,7 +364,8 @@ fun TodayTodoPlanSectionCard(
     val completedCount = todos.count { it.isCompleted }
     val totalCount = todos.size
     val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
-    val progressAnimated by animateFloatAsState(targetValue = progress, label = "today_todo_progress")
+    var visibleTodoCount by remember { mutableIntStateOf(20) }
+    val visibleTodos = remember(todos, visibleTodoCount) { todos.take(visibleTodoCount) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -436,7 +432,7 @@ fun TodayTodoPlanSectionCard(
 
             if (totalCount > 0) {
                 LinearProgressIndicator(
-                    progress = progressAnimated,
+                    progress = { progress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
@@ -496,13 +492,11 @@ fun TodayTodoPlanSectionCard(
                     )
                 }
             } else {
-                LazyColumn(
+                Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height((todos.size * 58).coerceAtMost(300).dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(todos, key = { it.id }, contentType = { "today_todo" }) { todo ->
+                    visibleTodos.forEach { todo ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -557,6 +551,14 @@ fun TodayTodoPlanSectionCard(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                    }
+                    if (visibleTodos.size < todos.size) {
+                        TextButton(
+                            onClick = { visibleTodoCount += 20 },
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text("显示更多（剩余 ${todos.size - visibleTodos.size} 项）", fontSize = 12.sp)
                         }
                     }
                 }
@@ -635,7 +637,8 @@ fun PlanSectionCard(
     val completedCount = plans.count { it.isCompleted }
     val totalCount = plans.size
     val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
-    val progressAnimated by animateFloatAsState(targetValue = progress, label = "plan_progress")
+    var visiblePlanCount by remember { mutableIntStateOf(20) }
+    val visiblePlans = remember(plans, visiblePlanCount) { plans.take(visiblePlanCount) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -705,7 +708,7 @@ fun PlanSectionCard(
             // Progress Bar
             if (totalCount > 0) {
                 LinearProgressIndicator(
-                    progress = progressAnimated,
+                    progress = { progress },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
@@ -731,13 +734,11 @@ fun PlanSectionCard(
                     )
                 }
             } else {
-                LazyColumn(
+                Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height((plans.size * 58).coerceAtMost(300).dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(plans, key = { it.id }, contentType = { "segmented_plan" }) { plan ->
+                    visiblePlans.forEach { plan ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -783,6 +784,14 @@ fun PlanSectionCard(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                    }
+                    if (visiblePlans.size < plans.size) {
+                        TextButton(
+                            onClick = { visiblePlanCount += 20 },
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text("显示更多（剩余 ${plans.size - visiblePlans.size} 项）", fontSize = 12.sp)
                         }
                     }
                 }
