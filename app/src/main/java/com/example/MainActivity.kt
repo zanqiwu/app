@@ -10,6 +10,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.ui.Modifier
 import java.io.File
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.baidu.mapapi.CoordType
+import com.baidu.mapapi.SDKInitializer
 import com.example.ui.TodoScreen
 import com.example.ui.TodoViewModel
 import com.example.ui.theme.MyApplicationTheme
@@ -17,6 +19,9 @@ import com.example.ui.theme.MyApplicationTheme
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+    SDKInitializer.setAgreePrivacy(applicationContext, true)
+    SDKInitializer.initialize(applicationContext)
+    SDKInitializer.setCoordType(CoordType.GCJ02)
     
     // Pre-create WebView wasm cache directory to prevent Chromium from spamming warnings
     try {

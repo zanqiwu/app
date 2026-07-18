@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">龙虾</string>
+    <string name="accessibility_service_desc">龙虾需要读取屏幕内容，并执行点击、滑动、输入和返回等操作，用于操控手机上的其他程序。</string>
+</resources>

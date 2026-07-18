@@ -61,6 +61,7 @@ fun InteractiveMapView(
                 var map = null;
                 var markers = {};
                 var selectionMarker = null;
+                var fallbackTilesAdded = false;
 
                 // Robust initialization helper to handle load timing securely
                 function tryInit() {
@@ -81,10 +82,25 @@ fun InteractiveMapView(
                         // China-friendly Gaode/AutoNavi Map Tile Layer
                         L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}', {
                             subdomains: ["1", "2", "3", "4"],
-                            maxZoom: 20
+                            maxZoom: 20,
+                            crossOrigin: true
+                        }).on('tileerror', function(e) {
+                            console.error("Map tile load failed: " + (e.tile && e.tile.src ? e.tile.src : "unknown"));
+                            if (!fallbackTilesAdded) {
+                                fallbackTilesAdded = true;
+                                L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                                    maxZoom: 19,
+                                    crossOrigin: true
+                                }).addTo(map);
+                                refreshMapSize();
+                            }
                         }).addTo(map);
 
                         console.log("Map initialized successfully!");
+                        refreshMapSize();
+                        setTimeout(refreshMapSize, 100);
+                        setTimeout(refreshMapSize, 350);
+                        setTimeout(refreshMapSize, 800);
                         if (window.AndroidInterface && window.AndroidInterface.onMapInitialized) {
                             window.AndroidInterface.onMapInitialized();
                         }
@@ -95,6 +111,13 @@ fun InteractiveMapView(
                         }
                     }
                 }
+
+                function refreshMapSize() {
+                    if (!map) return;
+                    map.invalidateSize(true);
+                }
+
+                window.addEventListener('resize', refreshMapSize);
 
                 // Attach tryInit to all load triggers to ensure instantaneous loading
                 tryInit();
@@ -339,6 +362,7 @@ fun InteractiveMapView(
                     override fun onPageFinished(view: WebView?, url: String?) {
                         super.onPageFinished(view, url)
                         android.util.Log.d("InteractiveMapView", "onPageFinished: $url")
+                        view?.evaluateJavascript("if (typeof refreshMapSize === 'function') { setTimeout(refreshMapSize, 100); setTimeout(refreshMapSize, 500); }", null)
                     }
 
                     @Deprecated("Deprecated in Java")
@@ -380,7 +404,7 @@ fun InteractiveMapView(
             }
         },
         update = {
-            // Can handle dynamic updates if needed
+            it.evaluateJavascript("if (typeof refreshMapSize === 'function') { setTimeout(refreshMapSize, 100); }", null)
         }
     )
 }

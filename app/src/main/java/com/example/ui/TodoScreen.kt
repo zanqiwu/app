@@ -41,6 +41,8 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TodoItem
 import androidx.compose.ui.layout.ContentScale
@@ -387,6 +389,7 @@ fun TodoScreen(
                                             "extensions" -> "效率拓展"
                                             "plans" -> "分段计划"
                                             "analysis" -> "数据分析"
+                                            "openclaw" -> "龙虾"
                                             else -> "待办清单"
                                         },
                                         fontSize = 24.sp,
@@ -455,6 +458,9 @@ fun TodoScreen(
                 }
                 "analysis" -> {
                     AnalysisScreenContent(viewModel = viewModel)
+                }
+                "openclaw" -> {
+                    OpenDroidLauncherScreen()
                 }
                 else -> {
                     // Stats Panel
@@ -717,19 +723,9 @@ fun TodoScreen(
                                             }
                                         }
 
-                                        // Navigate Button (opens native google maps)
+                                        // Navigate Button
                                         IconButton(
-                                            onClick = {
-                                                try {
-                                                    val gmmIntentUri = Uri.parse("geo:0,0?q=${item.latitude},${item.longitude}(${Uri.encode(item.locationName ?: "Task Location")})")
-                                                    val mapIntent = Intent(Intent.ACTION_VIEW, gmmIntentUri).apply {
-                                                        setPackage("com.google.android.apps.maps")
-                                                    }
-                                                    context.startActivity(mapIntent)
-                                                } catch (e: Exception) {
-                                                    Toast.makeText(context, "无法打开 Google 地图应用", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
+                                            onClick = { showMapSelectorForTodo = item },
                                             modifier = Modifier.size(28.dp)
                                         ) {
                                             Icon(
@@ -1520,6 +1516,13 @@ fun AddEditTodoContent(
     var latitude by remember { mutableStateOf(editingItem?.latitude) }
     var longitude by remember { mutableStateOf(editingItem?.longitude) }
     var showMapPicker by remember { mutableStateOf(false) }
+    val mapSearchInputState = remember { mutableStateOf(editingItem?.locationName ?: "") }
+    var mapSearchTrigger by remember { mutableStateOf(0) }
+    var mapSearchLoading by remember { mutableStateOf(false) }
+    var mapSearchMessage by remember { mutableStateOf<String?>(null) }
+    var mapPoiResults by remember { mutableStateOf<List<BaiduPoiSuggestion>>(emptyList()) }
+    var selectedPoiSuggestion by remember { mutableStateOf<BaiduPoiSuggestion?>(null) }
+    var selectedPoiTrigger by remember { mutableStateOf(0) }
 
     var hasAlarm by remember { mutableStateOf(editingItem?.hasAlarm ?: false) }
     var alarmTime by remember { mutableStateOf(editingItem?.alarmTime) }
@@ -2111,7 +2114,14 @@ fun AddEditTodoContent(
 
             // Select on Map Button
             IconButton(
-                onClick = { showMapPicker = true },
+                onClick = {
+                    mapSearchInputState.value = locationNameState.value
+                    mapPoiResults = emptyList()
+                    selectedPoiSuggestion = null
+                    mapSearchMessage = if (locationNameState.value.isNotBlank()) "正在按地点名称搜索..." else null
+                    mapSearchTrigger += 1
+                    showMapPicker = true
+                },
                 modifier = Modifier
                     .size(52.dp)
                     .background(
@@ -2131,72 +2141,283 @@ fun AddEditTodoContent(
             Spacer(modifier = Modifier.height(4.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(horizontal = 4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.LocationOn,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = "定位经纬度: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = "定位经纬度: ${String.format("%.4f", latitude)}, ${String.format("%.4f", longitude)}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                OutlinedButton(
+                    onClick = {
+                        openExternalMap(
+                            context = context,
+                            latitude = latitude ?: return@OutlinedButton,
+                            longitude = longitude ?: return@OutlinedButton,
+                            label = locationNameState.value.ifBlank { "待办位置" },
+                            mapType = "baidu"
+                        )
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("导航", fontSize = 11.sp)
+                }
             }
         }
 
         if (showMapPicker) {
-            ModalBottomSheet(
+            Dialog(
                 onDismissRequest = { showMapPicker = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-                dragHandle = { BottomSheetDefaults.DragHandle() },
-                containerColor = MaterialTheme.colorScheme.surface
+                properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
-                Column(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(550.dp)
-                        .padding(bottom = 16.dp)
+                        .fillMaxSize(),
+                    contentAlignment = Alignment.BottomCenter
                 ) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.surface,
+                        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                        tonalElevation = 8.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.88f)
+                        .navigationBarsPadding()
+                        .padding(bottom = 12.dp)
+                ) {
+                            BottomSheetDefaults.DragHandle(modifier = Modifier.align(Alignment.CenterHorizontally))
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("点击地图选择位置", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Button(
-                            onClick = { showMapPicker = false },
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("完成选择", fontSize = 12.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("搜索或点击地图选择位置", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text(
+                                text = "拖动地图时请从地图内部开始滑动，避开屏幕边缘返回手势。",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(
+                                onClick = {
+                                    openExternalMap(
+                                        context = context,
+                                        latitude = latitude ?: return@OutlinedButton,
+                                        longitude = longitude ?: return@OutlinedButton,
+                                        label = locationNameState.value.ifBlank { "待办位置" },
+                                        mapType = "baidu"
+                                    )
+                                },
+                                enabled = latitude != null && longitude != null,
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                                modifier = Modifier.height(38.dp)
+                            ) {
+                                Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("导航", fontSize = 12.sp)
+                            }
+                            Button(
+                                onClick = { showMapPicker = false },
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(38.dp)
+                            ) {
+                                Text("完成", fontSize = 12.sp)
+                            }
                         }
                     }
-                    
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
+                            .padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = mapSearchInputState.value,
+                            onValueChange = { mapSearchInputState.value = it },
+                            placeholder = { Text("搜索地点或地址") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(
+                                onSearch = {
+                                    val keyword = mapSearchInputState.value.trim()
+                                    if (keyword.isNotBlank()) {
+                                        mapSearchInputState.value = keyword
+                                        mapSearchTrigger += 1
+                                    }
+                                }
+                            ),
+                            modifier = Modifier.weight(1f),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+                            ),
+                            trailingIcon = {
+                                if (mapSearchInputState.value.isNotBlank()) {
+                                    IconButton(onClick = { mapSearchInputState.value = "" }) {
+                                        Icon(Icons.Default.Clear, contentDescription = "清除")
+                                    }
+                                }
+                            }
+                        )
+                        Button(
+                            onClick = {
+                                val keyword = mapSearchInputState.value.trim()
+                                if (keyword.isBlank()) {
+                                    Toast.makeText(context, "请输入要搜索的地点", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    mapSearchInputState.value = keyword
+                                    mapSearchTrigger += 1
+                                }
+                            },
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            if (mapSearchLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+
+                    if (!mapSearchMessage.isNullOrBlank() || mapPoiResults.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp)
+                                .padding(bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            mapSearchMessage?.let { message ->
+                                Text(
+                                    text = message,
+                                    fontSize = 11.sp,
+                                    color = if (mapSearchLoading) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (mapPoiResults.isNotEmpty()) {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(end = 4.dp)
+                                ) {
+                                    items(mapPoiResults) { suggestion ->
+                                        Column(
+                                            modifier = Modifier
+                                                .widthIn(min = 150.dp, max = 240.dp)
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f))
+                                                .clickable {
+                                                    selectedPoiSuggestion = suggestion
+                                                    selectedPoiTrigger += 1
+                                                    locationNameState.value = suggestion.displayName
+                                                    latitude = suggestion.latitude
+                                                    longitude = suggestion.longitude
+                                                }
+                                                .padding(horizontal = 12.dp, vertical = 9.dp)
+                                        ) {
+                                            Text(
+                                                text = suggestion.name,
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (suggestion.displayAddress.isNotBlank()) {
+                                                Text(
+                                                    text = suggestion.displayAddress,
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
+                            .padding(horizontal = 14.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                            .border(
+                                1.dp,
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                                RoundedCornerShape(14.dp)
+                            )
                     ) {
-                        InteractiveMapView(
-                            mode = MapMode.PICKER,
+                        BaiduMapPickerView(
                             initialLat = latitude ?: 30.25,
                             initialLng = longitude ?: 120.15,
-                            initialZoom = 13,
-                            onLocationPicked = { lat, lng ->
+                            initialZoom = 15f,
+                            searchKeyword = mapSearchInputState.value,
+                            searchTrigger = mapSearchTrigger,
+                            selectedSuggestion = selectedPoiSuggestion,
+                            selectedSuggestionTrigger = selectedPoiTrigger,
+                            modifier = Modifier.fillMaxSize(),
+                            onLocationPicked = { lat, lng, address ->
                                 latitude = lat
                                 longitude = lng
-                                if (locationNameState.value.isBlank()) {
-                                    locationNameState.value = "选中位置"
+                                if (!address.isNullOrBlank()) {
+                                    locationNameState.value = address
+                                    mapSearchInputState.value = address
+                                } else if (locationNameState.value.isBlank()) {
+                                    locationNameState.value = "百度地图选中位置"
                                 }
+                            },
+                            onSearchStateChanged = { searching, message ->
+                                mapSearchLoading = searching
+                                mapSearchMessage = message
+                            },
+                            onSearchResultsChanged = { results ->
+                                mapPoiResults = results
                             }
                         )
                     }
+                }
+            }
                 }
             }
         }
@@ -2375,6 +2596,7 @@ fun DrawerContent(
             Triple("plans", "分段计划", Icons.Default.EventNote),
             Triple("weekly_report", "智能周报", Icons.Default.Article),
             Triple("analysis", "数据统计", Icons.Default.BarChart),
+            Triple("openclaw", "龙虾", Icons.Default.PhoneAndroid),
             Triple("settings", "软件设置", Icons.Default.Settings),
             Triple("extensions", "效率拓展", Icons.Default.Extension)
         )
@@ -2395,12 +2617,24 @@ fun DrawerContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
+                if (screenKey == "openclaw") {
+                    Box(
+                        modifier = Modifier.size(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "🦞",
+                            fontSize = 18.sp
+                        )
+                    }
+                } else {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = label,
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(12.dp))
                 Text(
                     text = label,
@@ -3113,78 +3347,84 @@ fun openExternalMap(
         else -> "系统默认地图"
     }
 
-    Toast.makeText(context, "【1】准备启动${mapName}\n经度:$longitude, 纬度:$latitude", Toast.LENGTH_LONG).show()
+    val baiduDirectionUri = "bdapp://map/direction?destination=latlng:$latitude,$longitude|name:$labelEncoded&mode=driving&coord_type=gcj02&src=andr.todo"
+    val baiduLegacyDirectionUri = "baidumap://map/direction?destination=latlng:$latitude,$longitude|name:$labelEncoded&mode=driving&coord_type=gcj02&src=andr.todo"
 
-    // Define App Intents
+    // Define route/navigation App Intents
     val appIntent = when (mapType) {
         "amap" -> {
-            Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://viewMap?sourceApplication=TodoApp&poiname=$labelEncoded&lat=$latitude&lon=$longitude&dev=0")).apply {
+            Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://route/plan/?sourceApplication=TodoApp&dlat=$latitude&dlon=$longitude&dname=$labelEncoded&dev=0&t=0")).apply {
                 setPackage("com.autonavi.minimap")
             }
         }
         "baidu" -> {
-            Intent(Intent.ACTION_VIEW, Uri.parse("bdapp://map/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&src=andr.baidu.todo&coord_type=gcj02")).apply {
+            Intent(Intent.ACTION_VIEW, Uri.parse(baiduDirectionUri)).apply {
                 setPackage("com.baidu.BaiduMap")
             }
         }
         "tencent" -> {
-            Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp")).apply {
+            Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/routeplan?type=drive&to=$labelEncoded&tocoord=$latitude,$longitude&referer=TodoApp")).apply {
                 setPackage("com.tencent.map")
             }
         }
         "google" -> {
-            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$latitude,$longitude($labelEncoded)")).apply {
+            Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$latitude,$longitude")).apply {
                 setPackage("com.google.android.apps.maps")
             }
         }
         else -> { // "default"
-            Intent(Intent.ACTION_VIEW, Uri.parse("geo:$latitude,$longitude?q=$latitude,$longitude($labelEncoded)"))
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$latitude,$longitude($labelEncoded)"))
         }
     }
     appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
     // Define Web Fallbacks
     val webFallbackUrl = when (mapType) {
-        "amap" -> "https://uri.amap.com/marker?position=$longitude,$latitude&name=$labelEncoded"
-        "baidu" -> "https://api.map.baidu.com/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&output=html"
-        "tencent" -> "https://apis.map.qq.com/uri/v1/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp"
-        "google" -> "https://www.google.com/maps/search/?api=1&query=$latitude,$longitude"
-        else -> "https://uri.amap.com/marker?position=$longitude,$latitude&name=$labelEncoded" // Fallback to Gaode web map in China
+        "amap" -> "https://uri.amap.com/navigation?to=$longitude,$latitude,$labelEncoded&mode=car&src=TodoApp&coordinate=gaode"
+        "baidu" -> "https://api.map.baidu.com/direction?destination=latlng:$latitude,$longitude|name:$labelEncoded&mode=driving&coord_type=gcj02&output=html&src=andr.todo"
+        "tencent" -> "https://apis.map.qq.com/uri/v1/routeplan?type=drive&tocoord=$latitude,$longitude&to=$labelEncoded&referer=TodoApp"
+        "google" -> "https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude"
+        else -> "https://uri.amap.com/navigation?to=$longitude,$latitude,$labelEncoded&mode=car&src=TodoApp&coordinate=gaode"
+    }
+
+    val fallbackSchemeIntents = when (mapType) {
+        "amap" -> listOf(Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://route/plan/?sourceApplication=TodoApp&dlat=$latitude&dlon=$longitude&dname=$labelEncoded&dev=0&t=0")))
+        "baidu" -> listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse(baiduDirectionUri)),
+            Intent(Intent.ACTION_VIEW, Uri.parse(baiduLegacyDirectionUri))
+        )
+        "tencent" -> listOf(Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/routeplan?type=drive&to=$labelEncoded&tocoord=$latitude,$longitude&referer=TodoApp")))
+        "google" -> listOf(Intent(Intent.ACTION_VIEW, Uri.parse("google.navigation:q=$latitude,$longitude")))
+        else -> emptyList()
     }
 
     try {
         context.startActivity(appIntent)
-        Toast.makeText(context, "【成功】通过指定App包名成功拉起!", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "正在打开${mapName}导航", Toast.LENGTH_SHORT).show()
     } catch (e: Exception) {
         android.util.Log.e("TodoAppMap", "Failed to launch main map intent: ${e.message}", e)
-        Toast.makeText(context, "【提示】包名拉起失败: ${e.javaClass.simpleName} (${e.message})，将尝试万能协议...", Toast.LENGTH_SHORT).show()
-        // App launch failed (e.g. not installed or package restricted). Try raw custom scheme fallback (some custom ROMs match this)
         try {
-            val fallbackSchemeIntent = when (mapType) {
-                "amap" -> Intent(Intent.ACTION_VIEW, Uri.parse("androidamap://viewMap?sourceApplication=TodoApp&poiname=$labelEncoded&lat=$latitude&lon=$longitude&dev=0"))
-                "baidu" -> Intent(Intent.ACTION_VIEW, Uri.parse("bdapp://map/marker?location=$latitude,$longitude&title=$labelEncoded&content=$labelEncoded&src=andr.baidu.todo&coord_type=gcj02"))
-                "tencent" -> Intent(Intent.ACTION_VIEW, Uri.parse("qqmap://map/marker?marker=coord:$latitude,$longitude;title:$labelEncoded&referer=TodoApp"))
-                "google" -> Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$latitude,$longitude($labelEncoded)"))
-                else -> null
+            var launched = false
+            for (fallbackSchemeIntent in fallbackSchemeIntents) {
+                try {
+                    fallbackSchemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(fallbackSchemeIntent)
+                    launched = true
+                    break
+                } catch (_: Exception) {
+                    // Try the next compatible URI scheme before falling back to web.
+                }
             }
-            if (fallbackSchemeIntent != null) {
-                fallbackSchemeIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(fallbackSchemeIntent)
-                Toast.makeText(context, "【成功】通过万能协议（不限包名）成功拉起!", Toast.LENGTH_SHORT).show()
-            } else {
-                throw e
-            }
+            if (!launched) throw e
+            Toast.makeText(context, "正在打开${mapName}导航", Toast.LENGTH_SHORT).show()
         } catch (ex2: Exception) {
             android.util.Log.e("TodoAppMap", "Failed to launch fallback scheme: ${ex2.message}", ex2)
-            Toast.makeText(context, "【提示】万能协议也失败: ${ex2.javaClass.simpleName} (${ex2.message})，切换到网页版浏览器...", Toast.LENGTH_SHORT).show()
-            // App & scheme launch failed. Fallback to web map in browser!
             try {
-                Toast.makeText(context, "【正在打开网页】URL: $webFallbackUrl", Toast.LENGTH_LONG).show()
                 val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(webFallbackUrl)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(webIntent)
-                Toast.makeText(context, "【成功】已成功向系统发送打开浏览器网页请求!", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "已切换到网页版${mapName}", Toast.LENGTH_SHORT).show()
             } catch (exWeb: Exception) {
                 android.util.Log.e("TodoAppMap", "Failed to launch web browser fallback: ${exWeb.message}", exWeb)
                 Toast.makeText(context, "【严重错误】所有拉起方式和网页浏览器均失败:\n${exWeb.localizedMessage}", Toast.LENGTH_LONG).show()
