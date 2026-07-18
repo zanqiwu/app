@@ -23,18 +23,25 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TodoItem
+import com.example.utils.DateUtils
+import com.example.utils.PomodoroStore
 import java.text.SimpleDateFormat
 import java.util.*
 
 data class BarData(val label: String, val value: Int)
+data class FocusBarData(val label: String, val seconds: Int)
 
 @Composable
 fun AnalysisScreenContent(
     viewModel: TodoViewModel,
     modifier: Modifier = Modifier
 ) {
-    val todoItems by viewModel.todoItemsState.collectAsStateWithLifecycle()
+    val todoItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val currentDayKey by viewModel.currentDayKeyState.collectAsStateWithLifecycle()
+    val pomodoroRunning by viewModel.pomodoroRunningState.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var chartTab by remember { mutableStateOf(0) } // 0: Week, 1: Month
+    var focusChartTab by remember { mutableStateOf(0) } // 0: Week, 1: Month
 
     val totalTasks = todoItems.size
     val completedItems = remember(todoItems) { todoItems.filter { it.isCompleted } }
@@ -42,7 +49,7 @@ fun AnalysisScreenContent(
     val completionRate = if (totalTasks > 0) (completedCount * 100) / totalTasks else 0
 
     // 1. Weekly completion stats (last 7 days ending today)
-    val last7DaysData = remember(completedItems) {
+    val last7DaysData = remember(completedItems, currentDayKey) {
         val result = mutableListOf<BarData>()
         val sdfLabel = SimpleDateFormat("E", Locale.CHINA) // e.g. "周一", "周二"
         
@@ -67,7 +74,7 @@ fun AnalysisScreenContent(
             val endOfDay = startOfDay + 24 * 60 * 60 * 1000 - 1
             
             val count = completedItems.count { item ->
-                val itemTime = item.dueDate ?: item.createdAt
+                val itemTime = item.completedAt ?: item.dueDate ?: item.createdAt
                 itemTime in startOfDay..endOfDay
             }
             result.add(BarData(label, count))
@@ -76,7 +83,7 @@ fun AnalysisScreenContent(
     }
 
     // 2. Monthly completion stats (last 6 months ending current month)
-    val last6MonthsData = remember(completedItems) {
+    val last6MonthsData = remember(completedItems, currentDayKey) {
         val result = mutableListOf<BarData>()
         val sdfLabel = SimpleDateFormat("M月", Locale.CHINA) // e.g. "7月", "6月"
         
@@ -112,7 +119,7 @@ fun AnalysisScreenContent(
             }.timeInMillis
             
             val count = completedItems.count { item ->
-                val itemTime = item.dueDate ?: item.createdAt
+                val itemTime = item.completedAt ?: item.dueDate ?: item.createdAt
                 itemTime in startOfMonth..endOfMonth
             }
             result.add(BarData(label, count))
@@ -123,6 +130,46 @@ fun AnalysisScreenContent(
     // Identify most productive day/month
     val weekBest = last7DaysData.maxByOrNull { it.value }
     val monthBest = last6MonthsData.maxByOrNull { it.value }
+    val todayFocusSeconds = remember(currentDayKey, pomodoroRunning) {
+        PomodoroStore.focusSecondsForDay(context, currentDayKey)
+    }
+    val last7DaysFocusData = remember(currentDayKey, pomodoroRunning) {
+        (0..6).map { offset ->
+            val tempCal = Calendar.getInstance()
+            tempCal.add(Calendar.DAY_OF_YEAR, -offset)
+            val label = SimpleDateFormat("E", Locale.CHINA).format(tempCal.time)
+            val dayKey = DateUtils.dayKey(tempCal.timeInMillis)
+            FocusBarData(label, PomodoroStore.focusSecondsForDay(context, dayKey))
+        }.reversed()
+    }
+    val last6MonthsFocusData = remember(currentDayKey, pomodoroRunning) {
+        (0..5).map { offset ->
+            val monthCal = Calendar.getInstance()
+            monthCal.add(Calendar.MONTH, -offset)
+            val label = SimpleDateFormat("M月", Locale.CHINA).format(monthCal.time)
+            val year = monthCal.get(Calendar.YEAR)
+            val month = monthCal.get(Calendar.MONTH)
+            var seconds = 0
+            val dayCal = Calendar.getInstance().apply {
+                set(Calendar.YEAR, year)
+                set(Calendar.MONTH, month)
+                set(Calendar.DAY_OF_MONTH, 1)
+                set(Calendar.HOUR_OF_DAY, 0)
+                set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+            }
+            val maxDay = dayCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            repeat(maxDay) {
+                seconds += PomodoroStore.focusSecondsForDay(context, DateUtils.dayKey(dayCal.timeInMillis))
+                dayCal.add(Calendar.DAY_OF_MONTH, 1)
+            }
+            FocusBarData(label, seconds)
+        }.reversed()
+    }
+    val selectedFocusData = if (focusChartTab == 0) last7DaysFocusData else last6MonthsFocusData
+    val selectedFocusTotalSeconds = selectedFocusData.sumOf { it.seconds }
+    val selectedFocusBest = selectedFocusData.maxByOrNull { it.seconds }
 
     LazyColumn(
         modifier = modifier
@@ -236,6 +283,114 @@ fun AnalysisScreenContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(180.dp)
+                    )
+                }
+            }
+        }
+
+        // Pomodoro focus statistics
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "番茄钟专注统计",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (focusChartTab == 0) "最近 7 天每日专注时长" else "最近 6 个月每月专注时长",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                .padding(2.dp)
+                        ) {
+                            Button(
+                                onClick = { focusChartTab = 0 },
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (focusChartTab == 0) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                    contentColor = if (focusChartTab == 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("周", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Button(
+                                onClick = { focusChartTab = 1 },
+                                shape = RoundedCornerShape(6.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (focusChartTab == 1) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                    contentColor = if (focusChartTab == 1) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                ),
+                                modifier = Modifier.height(28.dp)
+                            ) {
+                                Text("月", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        MetricCard(
+                            modifier = Modifier.weight(1f),
+                            title = "今日专注",
+                            value = formatFocusValue(todayFocusSeconds).first,
+                            unit = formatFocusValue(todayFocusSeconds).second,
+                            icon = Icons.Default.Timer,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        MetricCard(
+                            modifier = Modifier.weight(1f),
+                            title = if (focusChartTab == 0) "本周累计" else "近六月累计",
+                            value = formatFocusValue(selectedFocusTotalSeconds).first,
+                            unit = formatFocusValue(selectedFocusTotalSeconds).second,
+                            icon = Icons.Default.HourglassTop,
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+
+                    FocusBarChart(
+                        data = selectedFocusData,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                    )
+
+                    val bestLabel = selectedFocusBest?.takeIf { it.seconds > 0 }?.let {
+                        "${it.label} (${formatFocusDuration(it.seconds)})"
+                    } ?: "暂无数据"
+                    Text(
+                        text = "最高专注：$bestLabel",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -530,5 +685,110 @@ fun CustomBarChart(
                 )
             }
         }
+    }
+}
+
+@Composable
+fun FocusBarChart(
+    data: List<FocusBarData>,
+    modifier: Modifier = Modifier
+) {
+    val maxSeconds = remember(data) { data.maxOfOrNull { it.seconds } ?: 0 }
+    val displayMaxSeconds = if (maxSeconds == 0) 1 else maxSeconds
+    val useHours = maxSeconds >= 60 * 60
+
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        data.forEach { bar ->
+            val animatedFraction by animateFloatAsState(
+                targetValue = bar.seconds.toFloat() / displayMaxSeconds.toFloat(),
+                animationSpec = tween(durationMillis = 800),
+                label = "focus_bar_height_${bar.label}"
+            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Bottom,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .weight(1f)
+            ) {
+                Text(
+                    text = formatFocusBarValue(bar.seconds, useHours),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (bar.seconds > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                    modifier = Modifier.padding(bottom = 4.dp),
+                    maxLines = 1
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .width(16.dp)
+                        .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fillMaxHeight(fraction = animatedFraction.coerceIn(0f, 1f))
+                            .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.tertiary
+                                    )
+                                )
+                            )
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = bar.label,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(36.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun formatFocusValue(seconds: Int): Pair<String, String> {
+    if (seconds < 60 * 60) {
+        return ((seconds + 59) / 60).toString() to "分钟"
+    }
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (minutes == 0) {
+        hours.toString() to "小时"
+    } else {
+        "$hours.${(minutes * 10) / 60}" to "小时"
+    }
+}
+
+private fun formatFocusDuration(seconds: Int): String {
+    if (seconds <= 0) return "0 分钟"
+    if (seconds < 60 * 60) return "${(seconds + 59) / 60} 分钟"
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (minutes == 0) "${hours} 小时" else "${hours} 小时 ${minutes} 分钟"
+}
+
+private fun formatFocusBarValue(seconds: Int, useHours: Boolean): String {
+    if (seconds <= 0) return "0"
+    return if (useHours) {
+        val hours = seconds / 3600.0
+        String.format(Locale.CHINA, "%.1fh", hours)
+    } else {
+        "${(seconds + 59) / 60}"
     }
 }

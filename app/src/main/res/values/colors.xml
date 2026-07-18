@@ -7,4 +7,9 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="pomodoro_primary">#4F66A3</color>
+    <color name="pomodoro_card_background">#FFF8FAFF</color>
+    <color name="pomodoro_card_stroke">#FFE1E7F5</color>
+    <color name="pomodoro_pill_background">#FFEAF0FF</color>
+    <color name="pomodoro_text_primary">#FF182033</color>
 </resources>

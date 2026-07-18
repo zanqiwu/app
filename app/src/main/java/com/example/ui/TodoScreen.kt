@@ -13,12 +13,14 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -31,8 +33,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.TodoItem
 import androidx.compose.ui.layout.ContentScale
@@ -752,7 +757,18 @@ fun TodoScreen(
                         }
                     )
                 } else {
+                    val todoListState = rememberLazyListState()
+                    var orderedItems by remember { mutableStateOf(items) }
+                    var draggingItemId by remember { mutableStateOf<Int?>(null) }
+                    var draggedOffsetY by remember { mutableStateOf(0f) }
+                    LaunchedEffect(items) {
+                        if (draggingItemId == null) {
+                            orderedItems = items
+                        }
+                    }
+
                     LazyColumn(
+                        state = todoListState,
                         modifier = Modifier
                             .fillMaxSize()
                             .weight(1f)
@@ -760,10 +776,59 @@ fun TodoScreen(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(if (isCompactMode) 6.dp else 10.dp)
                     ) {
-                        items(items, key = { it.id }) { item ->
+                        items(orderedItems, key = { it.id }) { item ->
+                            val isDragging = draggingItemId == item.id
+                            val dragModifier = Modifier
+                                .zIndex(if (isDragging) 1f else 0f)
+                                .graphicsLayer {
+                                    translationY = if (isDragging) draggedOffsetY else 0f
+                                    scaleX = if (isDragging) 1.02f else 1f
+                                    scaleY = if (isDragging) 1.02f else 1f
+                                }
+                                .pointerInput(item.id, orderedItems) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            draggingItemId = item.id
+                                            draggedOffsetY = 0f
+                                        },
+                                        onDragEnd = {
+                                            viewModel.updateTodoOrder(orderedItems)
+                                            draggingItemId = null
+                                            draggedOffsetY = 0f
+                                        },
+                                        onDragCancel = {
+                                            orderedItems = items
+                                            draggingItemId = null
+                                            draggedOffsetY = 0f
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            val currentIndex = orderedItems.indexOfFirst { it.id == item.id }
+                                            if (currentIndex == -1) return@detectDragGesturesAfterLongPress
+
+                                            draggedOffsetY += dragAmount.y
+                                            val visibleInfo = todoListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == item.id }
+                                            val threshold = ((visibleInfo?.size ?: 96) * 0.55f).coerceAtLeast(32f)
+                                            val targetIndex = when {
+                                                draggedOffsetY > threshold && currentIndex < orderedItems.lastIndex -> currentIndex + 1
+                                                draggedOffsetY < -threshold && currentIndex > 0 -> currentIndex - 1
+                                                else -> currentIndex
+                                            }
+
+                                            if (targetIndex != currentIndex) {
+                                                orderedItems = orderedItems.toMutableList().apply {
+                                                    add(targetIndex, removeAt(currentIndex))
+                                                }
+                                                draggedOffsetY = 0f
+                                            }
+                                        }
+                                    )
+                                }
+
                             TodoItemRow(
                                 item = item,
                                 isCompact = isCompactMode,
+                                modifier = dragModifier,
                                 onToggleComplete = { viewModel.toggleComplete(item) },
                                 onToggleImportant = { viewModel.toggleImportant(item) },
                                 onEdit = {
@@ -981,8 +1046,8 @@ fun TodoScreen(
 
 @Composable
 fun StatsCard(stats: TaskStats) {
-    val completionRatio = if (stats.filteredTotal > 0) {
-        stats.filteredCompleted.toFloat() / stats.filteredTotal.toFloat()
+    val completionRatio = if (stats.todayTotal > 0) {
+        stats.todayCompleted.toFloat() / stats.todayTotal.toFloat()
     } else {
         0f
     }
@@ -1020,7 +1085,8 @@ fun StatsCard(stats: TaskStats) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = when {
-                        stats.filteredTotal == 0 -> "没有找到待办事项，开始新的一天吧！"
+                        stats.todayTotal == 0 -> "没有找到待办事项，开始新的一天吧！"
+                        stats.yesterdayUnfinished > 0 -> "昨日还有 ${stats.yesterdayUnfinished} 项未完成，今天优先处理它们。"
                         completionRatio >= 1.0f -> "做得太棒了！所有任务均已完成！🎉"
                         completionRatio >= 0.7f -> "太给力了，大半的任务都完成了！✨"
                         completionRatio >= 0.4f -> "正在稳步前进，继续加油！💪"
@@ -1055,7 +1121,7 @@ fun StatsCard(stats: TaskStats) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "${stats.filteredCompleted}/${stats.filteredTotal}",
+                        text = "${stats.todayCompleted}/${stats.todayTotal}",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onPrimary
@@ -1075,6 +1141,7 @@ fun StatsCard(stats: TaskStats) {
 fun TodoItemRow(
     item: TodoItem,
     isCompact: Boolean = false,
+    modifier: Modifier = Modifier,
     onToggleComplete: () -> Unit,
     onToggleImportant: () -> Unit,
     onEdit: () -> Unit,
@@ -1085,7 +1152,7 @@ fun TodoItemRow(
     val dateFormatter = remember { SimpleDateFormat("MM-dd", Locale.getDefault()) }
 
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .testTag("todo_item_${item.id}"),
         shape = RoundedCornerShape(if (isCompact) 8.dp else 12.dp),
@@ -2926,10 +2993,29 @@ fun ExtensionsScreenContent(
     stats: TaskStats,
     context: android.content.Context
 ) {
-    // States for Pomodoro Timer
-    var pomodoroTimeLeft by remember { mutableStateOf(25 * 60) } // 25 mins in seconds
-    var pomodoroTotalTime by remember { mutableStateOf(25 * 60) }
-    var isTimerRunning by remember { mutableStateOf(false) }
+    val pomodoroState by viewModel.pomodoroState.collectAsStateWithLifecycle()
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.togglePomodoro()
+        } else {
+            Toast.makeText(context, "未开启通知权限，锁屏倒计时和完成提醒可能无法显示。", Toast.LENGTH_LONG).show()
+        }
+    }
+    val startOrPausePomodoro = {
+        if (!pomodoroState.isRunning &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.togglePomodoro()
+        }
+    }
     
     // States for AI quotes
     var currentQuote by remember { mutableStateOf("专注于当下，这是塑造美好未来的唯一方式。✨") }
@@ -2937,28 +3023,6 @@ fun ExtensionsScreenContent(
     var isGeneratingQuote by remember { mutableStateOf(false) }
 
     val presetMinutes = listOf(15, 25, 45, 60)
-
-    // Co-routine ticker for Pomodoro
-    LaunchedEffect(isTimerRunning) {
-        if (isTimerRunning) {
-            while (pomodoroTimeLeft > 0) {
-                kotlinx.coroutines.delay(1000L)
-                pomodoroTimeLeft -= 1
-            }
-            if (pomodoroTimeLeft == 0) {
-                isTimerRunning = false
-                try {
-                    val notification = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
-                    val r = android.media.RingtoneManager.getRingtone(context, notification)
-                    r.play()
-                    Toast.makeText(context, "⏰ 恭喜完成一次专注时间！好好休息一下吧！", Toast.LENGTH_LONG).show()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                pomodoroTimeLeft = pomodoroTotalTime
-            }
-        }
-    }
 
     LazyColumn(
         modifier = Modifier
@@ -2998,6 +3062,14 @@ fun ExtensionsScreenContent(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
+                    Text(
+                        text = "锁屏通知会显示剩余时间；结束时会响铃或震动提醒。",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                    )
                     
                     Spacer(modifier = Modifier.height(24.dp))
                     
@@ -3005,7 +3077,11 @@ fun ExtensionsScreenContent(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.size(160.dp)
                     ) {
-                        val progress = if (pomodoroTotalTime > 0) pomodoroTimeLeft.toFloat() / pomodoroTotalTime else 1f
+                        val progress = if (pomodoroState.totalSeconds > 0) {
+                            pomodoroState.remainingSeconds.toFloat() / pomodoroState.totalSeconds
+                        } else {
+                            1f
+                        }
                         CircularProgressIndicator(
                             progress = progress,
                             modifier = Modifier.fillMaxSize(),
@@ -3015,8 +3091,8 @@ fun ExtensionsScreenContent(
                         )
                         
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            val mins = pomodoroTimeLeft / 60
-                            val secs = pomodoroTimeLeft % 60
+                            val mins = pomodoroState.remainingSeconds / 60
+                            val secs = pomodoroState.remainingSeconds % 60
                             Text(
                                 text = String.format("%02d:%02d", mins, secs),
                                 fontSize = 32.sp,
@@ -3024,22 +3100,22 @@ fun ExtensionsScreenContent(
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = if (isTimerRunning) "专注中..." else "已准备就绪",
+                                text = if (pomodoroState.isRunning) "专注中..." else "已准备就绪",
                                 fontSize = 11.sp,
-                                color = if (isTimerRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (pomodoroState.isRunning) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
                     
                     Spacer(modifier = Modifier.height(20.dp))
                     
-                    if (!isTimerRunning) {
+                    if (!pomodoroState.isRunning) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             presetMinutes.forEach { mins ->
-                                val selected = pomodoroTotalTime == mins * 60
+                                val selected = pomodoroState.totalSeconds == mins * 60
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
@@ -3049,8 +3125,7 @@ fun ExtensionsScreenContent(
                                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                                         )
                                         .clickable {
-                                            pomodoroTotalTime = mins * 60
-                                            pomodoroTimeLeft = mins * 60
+                                            viewModel.setPomodoroPreset(mins)
                                         }
                                         .padding(vertical = 6.dp),
                                     contentAlignment = Alignment.Center
@@ -3072,26 +3147,25 @@ fun ExtensionsScreenContent(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Button(
-                            onClick = { isTimerRunning = !isTimerRunning },
+                            onClick = startOrPausePomodoro,
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isTimerRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                containerColor = if (pomodoroState.isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                             ),
                             modifier = Modifier.weight(1f).height(42.dp)
                         ) {
                             Icon(
-                                imageVector = if (isTimerRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                imageVector = if (pomodoroState.isRunning) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (isTimerRunning) "暂停专注" else "开始专注", fontSize = 13.sp)
+                            Text(if (pomodoroState.isRunning) "暂停专注" else "开始专注", fontSize = 13.sp)
                         }
                         
                         OutlinedButton(
                             onClick = {
-                                isTimerRunning = false
-                                pomodoroTimeLeft = pomodoroTotalTime
+                                viewModel.resetPomodoro()
                             },
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.weight(1f).height(42.dp)

@@ -8,11 +8,18 @@ import com.example.data.TodoItem
 import com.example.data.TodoRepository
 import com.example.data.SegmentedPlan
 import com.example.utils.CalendarSyncHelper
+import com.example.utils.DateUtils
+import com.example.utils.PomodoroNotifier
+import com.example.utils.PomodoroState
+import com.example.utils.PomodoroStore
 import com.example.widget.TodoAppWidgetProvider
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -37,6 +44,13 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     // Compact mode preference
     val isCompactMode = MutableStateFlow(sharedPrefs.getBoolean("is_compact_mode", false))
 
+    val currentDayKeyState = MutableStateFlow(DateUtils.todayKey())
+    val pomodoroState = MutableStateFlow(PomodoroStore.load(application))
+    val pomodoroRunningState: StateFlow<Boolean> = pomodoroState
+        .map { it.isRunning }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, pomodoroState.value.isRunning)
+
     fun setCompactMode(compact: Boolean) {
         isCompactMode.value = compact
         sharedPrefs.edit().putBoolean("is_compact_mode", compact).apply()
@@ -45,6 +59,8 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     init {
         val database = AppDatabase.getDatabase(application)
         repository = TodoRepository(database.todoDao(), database.segmentedPlanDao())
+        startDateTicker()
+        startPomodoroTicker()
     }
 
     // Expose filtered items
@@ -75,7 +91,11 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     )
 
     // Statistics Flow for visual indicators (charts or summaries)
-    val taskStatsState: StateFlow<TaskStats> = repository.allItems.combine(selectedCategoryFilter) { items, filter ->
+    val taskStatsState: StateFlow<TaskStats> = combine(
+        repository.allItems,
+        selectedCategoryFilter,
+        currentDayKeyState
+    ) { items, filter, todayKey ->
         val total = items.size
         val completed = items.count { it.isCompleted }
         val pending = total - completed
@@ -89,13 +109,24 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         }
         val filteredTotal = filteredItems.size
         val filteredCompleted = filteredItems.count { it.isCompleted }
+        val todayCompleted = filteredItems.count { item ->
+            item.isCompleted && DateUtils.isSameDay(item.completedAt ?: item.dueDate ?: item.createdAt, todayKey)
+        }
+        val todayPending = filteredItems.count { !it.isCompleted }
+        val yesterdayKey = DateUtils.yesterdayKey()
+        val yesterdayUnfinished = filteredItems.count { item ->
+            !item.isCompleted && DateUtils.isSameDay(item.dueDate ?: item.createdAt, yesterdayKey)
+        }
         
         TaskStats(
             total = total,
             completed = completed,
             pending = pending,
             filteredTotal = filteredTotal,
-            filteredCompleted = filteredCompleted
+            filteredCompleted = filteredCompleted,
+            todayTotal = todayPending + todayCompleted,
+            todayCompleted = todayCompleted,
+            yesterdayUnfinished = yesterdayUnfinished
         )
     }.stateIn(
         scope = viewModelScope,
@@ -212,7 +243,11 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleComplete(item: TodoItem) {
         viewModelScope.launch {
-            val updated = item.copy(isCompleted = !item.isCompleted)
+            val willComplete = !item.isCompleted
+            val updated = item.copy(
+                isCompleted = willComplete,
+                completedAt = if (willComplete) System.currentTimeMillis() else null
+            )
             if (updated.calendarEventId != null) {
                 CalendarSyncHelper.updateTodoInCalendar(getApplication(), updated)
             }
@@ -271,6 +306,76 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setSearchQuery(query: String) {
         searchQuery.value = query
+    }
+
+    fun updateTodoOrder(orderedItems: List<TodoItem>) {
+        viewModelScope.launch {
+            orderedItems.forEachIndexed { index, item ->
+                repository.update(item.copy(sortOrder = index.toLong() * 1_000L))
+            }
+            TodoAppWidgetProvider.updateAllWidgets(getApplication())
+        }
+    }
+
+    fun insertTodayPlanTodo(title: String) {
+        insertTodo(
+            title = title,
+            description = "",
+            category = "个人",
+            isImportant = false,
+            dueDate = null
+        )
+    }
+
+    fun setPomodoroPreset(minutes: Int) {
+        val context = getApplication<Application>()
+        PomodoroNotifier.onTimerReset(context)
+        pomodoroState.value = PomodoroStore.setPreset(context, minutes * 60)
+    }
+
+    fun togglePomodoro() {
+        val context = getApplication<Application>()
+        val current = PomodoroStore.load(context)
+        if (current.isRunning) {
+            val paused = PomodoroStore.pause(context)
+            PomodoroNotifier.onTimerPaused(context)
+            pomodoroState.value = paused
+        } else {
+            val started = PomodoroStore.start(context)
+            PomodoroNotifier.onTimerStarted(context, started)
+            pomodoroState.value = started
+        }
+    }
+
+    fun resetPomodoro() {
+        val context = getApplication<Application>()
+        val reset = PomodoroStore.reset(context)
+        PomodoroNotifier.onTimerReset(context)
+        pomodoroState.value = reset
+    }
+
+    private fun startDateTicker() {
+        viewModelScope.launch {
+            while (true) {
+                currentDayKeyState.value = DateUtils.todayKey()
+                delay(DateUtils.millisUntilNextDay())
+            }
+        }
+    }
+
+    private fun startPomodoroTicker() {
+        viewModelScope.launch {
+            while (true) {
+                val context = getApplication<Application>()
+                val latest = PomodoroStore.load(context)
+                if (latest.isRunning && latest.remainingSeconds <= 0) {
+                    pomodoroState.value = PomodoroStore.completeFinishedSession(context)
+                } else {
+                    pomodoroState.value = latest
+                }
+                delay(if (latest.isRunning) 1_000L else 3_000L)
+            }
+        }
     }
 
     // AI Assistant States
@@ -487,5 +592,8 @@ data class TaskStats(
     val completed: Int = 0,
     val pending: Int = 0,
     val filteredTotal: Int = 0,
-    val filteredCompleted: Int = 0
+    val filteredCompleted: Int = 0,
+    val todayTotal: Int = 0,
+    val todayCompleted: Int = 0,
+    val yesterdayUnfinished: Int = 0
 )

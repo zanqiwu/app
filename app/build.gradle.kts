@@ -18,8 +18,8 @@ android {
     applicationId = "com.aistudio.dailytodo.whkspr"
     minSdk = 26
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 4
+    versionName = "1.03"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -58,6 +58,22 @@ android {
     buildConfig = true
   }
   testOptions { unitTests { isIncludeAndroidResources = true } }
+}
+
+val debugApkFile = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+
+val copyDebugToDoListApkToOutputs = tasks.register<Copy>("copyDebugToDoListApkToOutputs") {
+  group = "build"
+  description = "Copy the debug APK to work/outputs/ToDoList.apk."
+  from(debugApkFile)
+  into(rootProject.layout.projectDirectory.dir("../outputs"))
+  rename { "ToDoList.apk" }
+}
+
+afterEvaluate {
+  tasks.named("assembleDebug") {
+    finalizedBy(copyDebugToDoListApkToOutputs)
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files

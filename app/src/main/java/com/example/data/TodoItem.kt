@@ -11,6 +11,7 @@ data class TodoItem(
     val category: String, // "Work", "Study", "Life", "Health", "Shopping", "Personal"
     val dueDate: Long? = null,
     val isCompleted: Boolean = false,
+    val completedAt: Long? = null,
     val isImportant: Boolean = false,
     val calendarEventId: Long? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -19,5 +20,6 @@ data class TodoItem(
     val longitude: Double? = null,
     val imageUrl: String? = null,
     val alarmTime: Long? = null,
-    val hasAlarm: Boolean = false
+    val hasAlarm: Boolean = false,
+    val sortOrder: Long = -System.currentTimeMillis()
 )

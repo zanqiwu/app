@@ -113,7 +113,11 @@ class TodoAppWidgetProvider : AppWidgetProvider() {
                         val item = db.todoDao().getTodoItemById(todoId)
                         if (item != null) {
                             // Toggle state
-                            val updatedItem = item.copy(isCompleted = !item.isCompleted)
+                            val willComplete = !item.isCompleted
+                            val updatedItem = item.copy(
+                                isCompleted = willComplete,
+                                completedAt = if (willComplete) System.currentTimeMillis() else null
+                            )
                             
                             // If it is synced with calendar, update in calendar too
                             if (updatedItem.calendarEventId != null) {

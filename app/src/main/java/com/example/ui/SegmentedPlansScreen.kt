@@ -31,6 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.SegmentedPlan
+import com.example.data.TodoItem
+import com.example.utils.DateUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -41,22 +43,28 @@ fun SegmentedPlansScreenContent(
     modifier: Modifier = Modifier
 ) {
     val plans by viewModel.segmentedPlansState.collectAsStateWithLifecycle()
+    val todoItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val currentDayKey by viewModel.currentDayKeyState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(0) } // 0: Current Plans, 1: History Archive
 
     // Current Date strings
-    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
-    val currentWeekStr = remember {
+    val todayStr = currentDayKey
+    val currentWeekStr = remember(currentDayKey) {
         val cal = Calendar.getInstance()
+        cal.timeInMillis = DateUtils.startOfDayMillis(currentDayKey)
         val year = cal.get(Calendar.YEAR)
         val week = cal.get(Calendar.WEEK_OF_YEAR)
         val formattedWeek = String.format("%02d", week)
         "$year-W$formattedWeek"
     }
-    val currentMonthStr = remember { SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date()) }
+    val currentMonthStr = remember(currentDayKey) {
+        SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date(DateUtils.startOfDayMillis(currentDayKey)))
+    }
 
     // Date displays (Friendly text)
-    val todayFriendly = remember {
+    val todayFriendly = remember(currentDayKey) {
         val cal = Calendar.getInstance()
+        cal.timeInMillis = DateUtils.startOfDayMillis(currentDayKey)
         val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
             Calendar.SUNDAY -> "周日"
             Calendar.MONDAY -> "周一"
@@ -70,18 +78,29 @@ fun SegmentedPlansScreenContent(
         val sdf = SimpleDateFormat("M月d日", Locale.getDefault())
         "${sdf.format(cal.time)} · $dayOfWeek"
     }
-    val currentWeekFriendly = remember {
+    val currentWeekFriendly = remember(currentDayKey) {
         val cal = Calendar.getInstance()
+        cal.timeInMillis = DateUtils.startOfDayMillis(currentDayKey)
         val weekNum = cal.get(Calendar.WEEK_OF_YEAR)
         "第 ${weekNum} 周计划"
     }
-    val currentMonthFriendly = remember {
-        SimpleDateFormat("yyyy年 M月计划", Locale.getDefault()).format(Date())
+    val currentMonthFriendly = remember(currentDayKey) {
+        SimpleDateFormat("yyyy年 M月计划", Locale.getDefault()).format(Date(DateUtils.startOfDayMillis(currentDayKey)))
     }
 
     // Filter plans
-    val todayPlans = remember(plans, todayStr) {
-        plans.filter { it.planType == "DAILY" && it.targetDate == todayStr }
+    val todayTodoItems = remember(todoItems) {
+        todoItems.sortedWith(
+            compareBy<TodoItem> { it.isCompleted }
+                .thenByDescending { it.isImportant }
+                .thenByDescending { it.createdAt }
+        )
+    }
+    val yesterdayUnfinishedItems = remember(todoItems, currentDayKey) {
+        val yesterdayKey = DateUtils.yesterdayKey()
+        todoItems.filter { item ->
+            !item.isCompleted && DateUtils.isSameDay(item.dueDate ?: item.createdAt, yesterdayKey)
+        }
     }
     val weeklyPlans = remember(plans, currentWeekStr) {
         plans.filter { it.planType == "WEEKLY" && it.targetDate == currentWeekStr }
@@ -134,16 +153,15 @@ fun SegmentedPlansScreenContent(
             ) {
                 // DAILY PLANS SECTION
                 item {
-                    PlanSectionCard(
+                    TodayTodoPlanSectionCard(
                         title = "今日计划",
                         subtitle = todayFriendly,
                         icon = Icons.Default.Event,
-                        plans = todayPlans,
-                        planType = "DAILY",
-                        targetDate = todayStr,
-                        onAddPlan = { viewModel.insertSegmentedPlan(it, "DAILY", todayStr) },
-                        onTogglePlan = { viewModel.toggleSegmentedPlan(it) },
-                        onDeletePlan = { viewModel.deleteSegmentedPlan(it) }
+                        todos = todayTodoItems,
+                        yesterdayUnfinished = yesterdayUnfinishedItems,
+                        onAddTodo = { viewModel.insertTodayPlanTodo(it) },
+                        onToggleTodo = { viewModel.toggleComplete(it) },
+                        onDeleteTodo = { viewModel.deleteTodo(it) }
                     )
                 }
 
@@ -330,6 +348,269 @@ fun SegmentedPlansScreenContent(
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun TodayTodoPlanSectionCard(
+    title: String,
+    subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    todos: List<TodoItem>,
+    yesterdayUnfinished: List<TodoItem>,
+    onAddTodo: (String) -> Unit,
+    onToggleTodo: (TodoItem) -> Unit,
+    onDeleteTodo: (TodoItem) -> Unit
+) {
+    var newTodoText by remember { mutableStateOf("") }
+    val completedCount = todos.count { it.isCompleted }
+    val totalCount = todos.size
+    val progress = if (totalCount > 0) completedCount.toFloat() / totalCount.toFloat() else 0f
+    val progressAnimated by animateFloatAsState(targetValue = progress, label = "today_todo_progress")
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                            contentDescription = null
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "$subtitle · 与待办清单同步",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                if (totalCount > 0) {
+                    Text(
+                        text = "$completedCount/$totalCount",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (totalCount > 0) {
+                LinearProgressIndicator(
+                    progress = progressAnimated,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(CircleShape),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+            }
+
+            if (yesterdayUnfinished.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "昨日未完成 ${yesterdayUnfinished.size} 项，已保留到今日计划",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                    yesterdayUnfinished.take(3).forEach { item ->
+                        Text(
+                            text = "· ${item.title}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    if (yesterdayUnfinished.size > 3) {
+                        Text(
+                            text = "还有 ${yesterdayUnfinished.size - 3} 项，请在清单中继续安排。",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            if (todos.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "当前待办清单为空，在下方添加后会同步到待办清单。",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
+            } else {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    todos.forEach { todo ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.4f))
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Checkbox(
+                                    checked = todo.isCompleted,
+                                    onCheckedChange = { onToggleTodo(todo) },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = MaterialTheme.colorScheme.primary,
+                                        uncheckedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = todo.title,
+                                        fontSize = 14.sp,
+                                        textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else null,
+                                        color = if (todo.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = todo.category,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = { onDeleteTodo(todo) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "删除待办",
+                                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = newTodoText,
+                    onValueChange = { newTodoText = it },
+                    placeholder = { Text("添加到今日待办...", fontSize = 13.sp) },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = {
+                        if (newTodoText.isNotBlank()) {
+                            onAddTodo(newTodoText)
+                            newTodoText = ""
+                        }
+                    }),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                    ),
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
+                )
+
+                FilledIconButton(
+                    onClick = {
+                        if (newTodoText.isNotBlank()) {
+                            onAddTodo(newTodoText)
+                            newTodoText = ""
+                        }
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("add_today_todo_button"),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "添加待办",
+                        modifier = Modifier.size(24.dp)
+                    )
                 }
             }
         }
