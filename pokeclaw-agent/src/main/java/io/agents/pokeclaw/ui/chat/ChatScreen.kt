@@ -3,14 +3,18 @@
 
 package io.agents.pokeclaw.ui.chat
 
-import android.app.Activity
-import android.content.ActivityNotFoundException
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Bundle
+import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -139,6 +143,7 @@ fun ChatScreen(
     onNewChat: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModels: () -> Unit,
+    onPreferencesChanged: () -> Unit = {},
     onFixPermissions: () -> Unit,
     onAttach: () -> Unit,
     conversations: List<ChatHistoryManager.ConversationSummary>,
@@ -265,6 +270,8 @@ fun ChatScreen(
                         },
                         onMenuClick = { scope.launch { drawerState.open() } },
                         onSettings = onOpenSettings,
+                        onModels = onOpenModels,
+                        onPreferencesChanged = onPreferencesChanged,
                         onModelSwitch = onModelSwitch,
                         colors = colors,
                     )
@@ -393,6 +400,8 @@ private fun ChatTopBar(
     onTabChange: (String) -> Unit,
     onMenuClick: () -> Unit,
     onSettings: () -> Unit,
+    onModels: () -> Unit,
+    onPreferencesChanged: () -> Unit,
     onModelSwitch: (modelId: String, displayName: String) -> Unit = { _, _ -> },
     colors: PokeclawColors,
 ) {
@@ -406,6 +415,7 @@ private fun ChatTopBar(
 
     Column {
         var showModelMenu by remember { mutableStateOf(false) }
+        var showPreferences by remember { mutableStateOf(false) }
 
         TopAppBar(
             title = {
@@ -422,7 +432,7 @@ private fun ChatTopBar(
                 }
             },
             actions = {
-                IconButton(onClick = onSettings) {
+                IconButton(onClick = { showPreferences = true }) {
                     Icon(Icons.Default.Settings, contentDescription = "配置")
                 }
             },
@@ -518,13 +528,13 @@ private fun ChatTopBar(
                         // No API key configured
                         DropdownMenuItem(
                             text = { Text("No API key configured", fontSize = 13.sp, color = colors.textTertiary) },
-                            onClick = { showModelMenu = false; onSettings() },
+                            onClick = { showModelMenu = false; onModels() },
                         )
                     }
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Configure API key...", fontSize = 13.sp, color = colors.accent) },
-                        onClick = { showModelMenu = false; onSettings() },
+                        onClick = { showModelMenu = false; onModels() },
                     )
                 } else {
                     // Local models: downloaded models
@@ -551,18 +561,89 @@ private fun ChatTopBar(
                     } else {
                         DropdownMenuItem(
                             text = { Text("No local model downloaded", fontSize = 13.sp, color = colors.textTertiary) },
-                            onClick = { showModelMenu = false; onSettings() },
+                            onClick = { showModelMenu = false; onModels() },
                         )
                     }
                     HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Download models...", fontSize = 13.sp, color = colors.accent) },
-                        onClick = { showModelMenu = false; onSettings() },
+                        onClick = { showModelMenu = false; onModels() },
                     )
                 }
             }
         }
+        if (showPreferences) {
+            AssistantPreferencesDialog(
+                onDismiss = { showPreferences = false },
+                onChanged = onPreferencesChanged,
+                colors = colors,
+            )
+        }
         HorizontalDivider(color = colors.divider, thickness = 0.5.dp)
+    }
+}
+
+@Composable
+private fun AssistantPreferencesDialog(
+    onDismiss: () -> Unit,
+    onChanged: () -> Unit,
+    colors: PokeclawColors,
+) {
+    var streaming by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isStreamingEnabled()) }
+    var ttsEnabled by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isTtsEnabled()) }
+    var ttsLanguage by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.getTtsLanguage()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("龙虾偏好设置") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                PreferenceSwitchRow("流式输出", "边生成边显示回复", streaming) { streaming = it }
+                PreferenceSwitchRow("语音朗读", "回复完成后自动朗读", ttsEnabled) { ttsEnabled = it }
+                if (ttsEnabled) {
+                    Text("朗读语言", style = MaterialTheme.typography.labelMedium, color = colors.textSecondary)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = ttsLanguage == "zh-CN",
+                            onClick = { ttsLanguage = "zh-CN" },
+                            label = { Text("中文") },
+                        )
+                        FilterChip(
+                            selected = ttsLanguage == "system",
+                            onClick = { ttsLanguage = "system" },
+                            label = { Text("跟随系统") },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                io.agents.pokeclaw.utils.KVUtils.setStreamingEnabled(streaming)
+                io.agents.pokeclaw.utils.KVUtils.setTtsEnabled(ttsEnabled)
+                io.agents.pokeclaw.utils.KVUtils.setTtsLanguage(ttsLanguage)
+                onChanged()
+                onDismiss()
+            }) { Text("保存") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        containerColor = colors.surface,
+    )
+}
+
+@Composable
+private fun PreferenceSwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall)
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -829,33 +910,52 @@ private fun ChatInputBar(
     val keyboardController = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
 
-    // Voice input — Android system RecognizerIntent, no RECORD_AUDIO needed (system dialog
-    // handles its own permission). Appends transcript to current text instead of replacing,
-    // so users can prefix with typed context.
-    val voiceLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        XLog.d("VoiceInput", "voiceLauncher result: resultCode=${result.resultCode}")
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenText = result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-                ?.takeIf { it.isNotBlank() }
-            if (spokenText != null) {
-                XLog.i("VoiceInput", "transcript received: ${spokenText.length} chars, currentText.len=${text.length}")
-                val prefix = when {
-                    text.isBlank() -> ""
-                    text.endsWith(" ") -> text
-                    else -> "$text "
-                }
-                text = prefix + spokenText
-            } else {
-                XLog.w("VoiceInput", "transcript empty or missing from result data")
-                Toast.makeText(context, R.string.voice_input_error, Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            XLog.d("VoiceInput", "voice input cancelled by user (resultCode != OK)")
+    var isListening by remember { mutableStateOf(false) }
+    val latestText by rememberUpdatedState(text)
+    val speechRecognizer = remember(context) { SpeechRecognizer.createSpeechRecognizer(context) }
+    val recognitionIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.SIMPLIFIED_CHINESE.toLanguageTag())
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         }
+    }
+    DisposableEffect(speechRecognizer) {
+        speechRecognizer.setRecognitionListener(object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) { isListening = true }
+            override fun onBeginningOfSpeech() { isListening = true }
+            override fun onRmsChanged(rmsdB: Float) = Unit
+            override fun onBufferReceived(buffer: ByteArray?) = Unit
+            override fun onEndOfSpeech() { isListening = false }
+            override fun onError(error: Int) {
+                isListening = false
+                if (error != SpeechRecognizer.ERROR_CLIENT && error != SpeechRecognizer.ERROR_NO_MATCH) {
+                    Toast.makeText(context, "语音输入失败（$error）", Toast.LENGTH_SHORT).show()
+                }
+            }
+            override fun onResults(results: Bundle?) {
+                isListening = false
+                val spoken = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                    ?.firstOrNull()?.takeIf { it.isNotBlank() } ?: return
+                text = when {
+                    latestText.isBlank() -> spoken
+                    latestText.endsWith(" ") -> latestText + spoken
+                    else -> "$latestText $spoken"
+                }
+            }
+            override fun onPartialResults(partialResults: Bundle?) = Unit
+            override fun onEvent(eventType: Int, params: Bundle?) = Unit
+        })
+        onDispose {
+            speechRecognizer.cancel()
+            speechRecognizer.destroy()
+        }
+    }
+    val microphonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) speechRecognizer.startListening(recognitionIntent)
+        else Toast.makeText(context, "请允许麦克风权限后使用语音输入", Toast.LENGTH_SHORT).show()
     }
 
     // Consume prefill from prompt chips
@@ -965,54 +1065,34 @@ private fun ChatInputBar(
 
             Spacer(Modifier.width(6.dp))
 
-            // Voice input mic button (Issue #44) — launches Android system speech dialog.
-            // Available whenever input is enabled (including while a task runs, so user
-            // can queue next prompt with voice without waiting).
             val micEnabled = inputEnabled
             FloatingActionButton(
                 onClick = {
-                    XLog.i("VoiceInput", "mic tapped: text.len=${text.length}, isTaskMode=$isTaskMode, isLocalModel=$isLocalModel")
-                    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                        putExtra(
-                            RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                            RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                        )
-                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                        putExtra(
-                            RecognizerIntent.EXTRA_PROMPT,
-                            context.getString(R.string.voice_input_prompt)
-                        )
+                    if (!micEnabled) return@FloatingActionButton
+                    if (!SpeechRecognizer.isRecognitionAvailable(context)) {
+                        Toast.makeText(context, R.string.voice_input_unavailable, Toast.LENGTH_SHORT).show()
+                        return@FloatingActionButton
                     }
-                    try {
-                        voiceLauncher.launch(intent)
-                    } catch (e: ActivityNotFoundException) {
-                        XLog.e("VoiceInput", "no speech recognition service installed", e)
-                        Toast.makeText(
-                            context,
-                            R.string.voice_input_unavailable,
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    } catch (e: Exception) {
-                        XLog.e("VoiceInput", "voice launch failed unexpectedly", e)
-                        Toast.makeText(
-                            context,
-                            R.string.voice_input_error,
-                            Toast.LENGTH_SHORT
-                        ).show()
+                    if (isListening) {
+                        speechRecognizer.stopListening()
+                    } else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        speechRecognizer.startListening(recognitionIntent)
+                    } else {
+                        microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(36.dp)
                     .alpha(if (micEnabled) 1f else 0.35f),
-                containerColor = colors.background,
+                containerColor = if (isListening) colors.accent.copy(alpha = 0.16f) else Color.Transparent,
                 shape = CircleShape,
                 elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 0.dp),
             ) {
                 Icon(
-                    Icons.Default.Mic,
+                    if (isListening) Icons.Default.Stop else Icons.Outlined.Mic,
                     contentDescription = stringResource(R.string.voice_input_button_cd),
-                    tint = colors.textTertiary,
-                    modifier = Modifier.size(16.dp),
+                    tint = if (isListening) colors.accent else colors.textSecondary,
+                    modifier = Modifier.size(19.dp),
                 )
             }
 

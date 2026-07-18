@@ -15,6 +15,7 @@ import io.agents.pokeclaw.agent.llm.LlmResponse
 import io.agents.pokeclaw.agent.llm.LlmSessionManager
 import io.agents.pokeclaw.agent.llm.ModelConfigRepository
 import io.agents.pokeclaw.agent.llm.StreamingListener
+import io.agents.pokeclaw.utils.KVUtils
 import io.agents.pokeclaw.utils.XLog
 import java.util.concurrent.ExecutorService
 
@@ -37,6 +38,7 @@ class ChatSessionController(
     private val onPersistConversation: () -> Unit,
     private val onRefreshSidebarHistory: () -> Unit,
     private val isTaskRunning: () -> Boolean,
+    private val onReplyCompleted: () -> Unit = {},
 ) {
     companion object {
         private const val TAG = "ChatSessionController"
@@ -131,10 +133,11 @@ class ChatSessionController(
                 cloudHistory.add(UserMessage.from(text))
                 val streamedText = StringBuilder()
                 var lastUiUpdate = 0L
-                val response = client.chatStreaming(
-                    cloudHistory,
-                    emptyList(),
-                    object : StreamingListener {
+                val response = if (KVUtils.isStreamingEnabled()) {
+                    client.chatStreaming(
+                        cloudHistory,
+                        emptyList(),
+                        object : StreamingListener {
                         override fun onPartialText(token: String) {
                             if (streamedText.length < MAX_RESPONSE_CHARS) {
                                 streamedText.append(token.take(MAX_RESPONSE_CHARS - streamedText.length))
@@ -150,8 +153,11 @@ class ChatSessionController(
                         override fun onComplete(response: LlmResponse) = Unit
 
                         override fun onError(error: Throwable) = Unit
-                    }
-                )
+                        }
+                    )
+                } else {
+                    client.chat(cloudHistory, emptyList())
+                }
                 val responseText = (response.text ?: streamedText.toString()).take(MAX_RESPONSE_CHARS)
                     .ifBlank { "（模型没有返回文本）" }
                 cloudHistory.add(AiMessage.from(responseText))
@@ -166,6 +172,7 @@ class ChatSessionController(
                     uiState.sessionTokens.value += inputTokens + outputTokens
                     uiState.sessionCost.value += ModelPricing.estimateCost(modelTag, inputTokens, outputTokens)
                     onPersistConversation()
+                    onReplyCompleted()
                 }
             } catch (e: Exception) {
                 XLog.e(TAG, "Cloud chat error", e)

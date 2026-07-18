@@ -8,6 +8,8 @@ import android.accessibilityservice.GestureDescription;
 import android.content.Context;
 import android.content.Intent;
 import android.provider.Settings;
+import android.text.TextUtils;
+import android.content.ComponentName;
 import android.graphics.Bitmap;
 import android.graphics.Path;
 import android.graphics.Rect;
@@ -69,9 +71,14 @@ public class ClawAccessibilityService extends AccessibilityService {
                     context.getContentResolver(),
                     Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
             if (enabledServices == null || enabledServices.isEmpty()) return false;
-            String myService = context.getPackageName() + "/"
-                    + ClawAccessibilityService.class.getName();
-            return enabledServices.contains(myService);
+            ComponentName expected = new ComponentName(context, ClawAccessibilityService.class);
+            TextUtils.SimpleStringSplitter splitter = new TextUtils.SimpleStringSplitter(':');
+            splitter.setString(enabledServices);
+            while (splitter.hasNext()) {
+                ComponentName enabled = ComponentName.unflattenFromString(splitter.next());
+                if (expected.equals(enabled)) return true;
+            }
+            return false;
         } catch (Exception e) {
             XLog.e(TAG, "Failed to check accessibility settings", e);
             return false;

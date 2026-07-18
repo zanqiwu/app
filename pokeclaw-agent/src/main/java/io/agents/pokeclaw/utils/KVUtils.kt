@@ -369,6 +369,18 @@ object KVUtils {
     fun hasLlmConfig(): Boolean =
         getLlmApiKey().isNotEmpty() || getLlmBaseUrl().isNotEmpty() || getLocalModelPath().isNotEmpty()
 
+    // ==================== Assistant Preferences ====================
+    private const val KEY_STREAMING_ENABLED = "KEY_STREAMING_ENABLED"
+    private const val KEY_TTS_ENABLED = "KEY_TTS_ENABLED"
+    private const val KEY_TTS_LANGUAGE = "KEY_TTS_LANGUAGE"
+
+    fun isStreamingEnabled(): Boolean = getBoolean(KEY_STREAMING_ENABLED, true)
+    fun setStreamingEnabled(enabled: Boolean) = putBoolean(KEY_STREAMING_ENABLED, enabled)
+    fun isTtsEnabled(): Boolean = getBoolean(KEY_TTS_ENABLED, false)
+    fun setTtsEnabled(enabled: Boolean) = putBoolean(KEY_TTS_ENABLED, enabled)
+    fun getTtsLanguage(): String = getString(KEY_TTS_LANGUAGE, "zh-CN")
+    fun setTtsLanguage(languageTag: String) = putString(KEY_TTS_LANGUAGE, languageTag)
+
     // ==================== Global Prompt (#45) ====================
     // User-defined persistent instructions prepended to every system prompt.
     // Empty string = disabled. No separate enable toggle by design (less to misconfigure).

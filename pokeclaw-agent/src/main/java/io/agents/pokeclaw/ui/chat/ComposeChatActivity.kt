@@ -9,6 +9,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,6 +26,7 @@ import io.agents.pokeclaw.ui.settings.SettingsActivity
 import io.agents.pokeclaw.utils.KVUtils
 import io.agents.pokeclaw.utils.XLog
 import java.util.concurrent.Executors
+import java.util.Locale
 
 /**
  * PokeClaw Chat Activity — Compose shell for the chat screen.
@@ -62,6 +64,8 @@ class ComposeChatActivity : ComponentActivity() {
     private var pendingExternalRequestId: String? = null
     private var pendingExternalReturnAction: String? = null
     private var pendingExternalReturnPackage: String? = null
+    private var textToSpeech: TextToSpeech? = null
+    private var lastSpokenMessageKey: String? = null
 
     private val chatSessionController by lazy {
         ChatSessionController(
@@ -80,6 +84,7 @@ class ComposeChatActivity : ComponentActivity() {
             onPersistConversation = { saveChat() },
             onRefreshSidebarHistory = { refreshSidebarHistory() },
             isTaskRunning = { appViewModel.isTaskRunning() },
+            onReplyCompleted = { speakLatestReplyIfEnabled() },
         )
     }
 
@@ -96,9 +101,15 @@ class ComposeChatActivity : ComponentActivity() {
                 isAwaitingReply = _isAwaitingReply,
                 isTaskRunning = _isTaskRunning,
             ),
-            onPersistConversation = { saveChat() },
+            onPersistConversation = {
+                saveChat()
+                speakLatestReplyIfEnabled()
+            },
             onTaskSettled = { deferLocalChatBootstrapForAutoTask = false },
-            onTaskTerminal = { sendExternalAutomationTerminalCallback(it) },
+            onTaskTerminal = {
+                sendExternalAutomationTerminalCallback(it)
+                if (it is TaskEvent.Completed) speakLatestReplyIfEnabled()
+            },
         )
     }
 
@@ -110,8 +121,9 @@ class ComposeChatActivity : ComponentActivity() {
     private val permHandler = Handler(Looper.getMainLooper())
     private val permPoller = object : Runnable {
         override fun run() {
-            _needsPermission.value =
-                AppCapabilityCoordinator.accessibilityState(this@ComposeChatActivity) != ServiceBindingState.READY
+            val state = AppCapabilityCoordinator.accessibilityState(this@ComposeChatActivity)
+            _needsPermission.value = state != ServiceBindingState.READY
+            if (state == ServiceBindingState.READY) removeStaleAccessibilityWarnings()
             permHandler.postDelayed(this, 1000)
         }
     }
@@ -164,6 +176,7 @@ class ComposeChatActivity : ComponentActivity() {
                 onNewChat = { newChat() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onOpenModels = { startActivity(Intent(this, LlmConfigActivity::class.java)) },
+                onPreferencesChanged = { syncTaskAgentConfig() },
                 onFixPermissions = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onAttach = { Toast.makeText(this, "Image upload coming soon", Toast.LENGTH_SHORT).show() },
                 conversations = _conversations.toList(),
@@ -199,6 +212,12 @@ class ComposeChatActivity : ComponentActivity() {
                 onModelSwitch = { modelId, displayName -> switchModel(modelId, displayName) },
                 colors = composeColors,
             )
+        }
+
+        textToSpeech = TextToSpeech(this) { status ->
+            if (status != TextToSpeech.SUCCESS) {
+                XLog.w(TAG, "TextToSpeech initialization failed: $status")
+            }
         }
 
         refreshSidebarHistory()
@@ -247,8 +266,11 @@ class ComposeChatActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        _needsPermission.value =
-            AppCapabilityCoordinator.accessibilityState(this) != ServiceBindingState.READY
+        val accessibilityState = AppCapabilityCoordinator.accessibilityState(this)
+        _needsPermission.value = accessibilityState != ServiceBindingState.READY
+        if (accessibilityState == ServiceBindingState.READY) {
+            removeStaleAccessibilityWarnings()
+        }
         _isLocalModelActive.value = ModelConfigRepository.isLocalActive()
         _isTaskRunning.value = appViewModel.isTaskRunning()
         refreshSidebarHistory()
@@ -273,6 +295,9 @@ class ComposeChatActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
+        textToSpeech = null
         chatSessionController.onDestroy()
         executor.shutdown()
     }
@@ -411,6 +436,24 @@ class ComposeChatActivity : ComponentActivity() {
 
     private fun saveChat() {
         syncSidebar(conversationStore.saveCurrent(_messages, currentConversationModelName()))
+    }
+
+    private fun speakLatestReplyIfEnabled() {
+        if (!KVUtils.isTtsEnabled()) return
+        val message = _messages.lastOrNull { it.role == ChatMessage.Role.ASSISTANT } ?: return
+        val key = "${message.timestamp}:${message.content.hashCode()}"
+        if (key == lastSpokenMessageKey || message.content.isBlank() || message.content == "...") return
+        lastSpokenMessageKey = key
+        val locale = if (KVUtils.getTtsLanguage() == "system") Locale.getDefault() else Locale.SIMPLIFIED_CHINESE
+        textToSpeech?.language = locale
+        textToSpeech?.speak(message.content, TextToSpeech.QUEUE_FLUSH, null, "lobster-reply-${message.timestamp}")
+    }
+
+    private fun removeStaleAccessibilityWarnings() {
+        _messages.removeAll {
+            it.role == ChatMessage.Role.SYSTEM &&
+                it.content.contains("Accessibility Service", ignoreCase = true)
+        }
     }
 
     private fun refreshSidebarHistory() {
