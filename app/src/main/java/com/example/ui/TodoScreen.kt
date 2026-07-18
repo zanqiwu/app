@@ -134,6 +134,7 @@ fun TodoScreen(
     Box(modifier = rootModifier) {
         ModalNavigationDrawer(
             drawerState = drawerState,
+            gesturesEnabled = currentScreen != "todos" || !isMapMode,
             drawerContent = {
                 ModalDrawerSheet(
                     drawerContainerColor = if (backgroundBrush != null) Color(0xFF110F20).copy(alpha = 0.95f) else MaterialTheme.colorScheme.surface,

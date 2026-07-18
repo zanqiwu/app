@@ -65,9 +65,15 @@ fun BaiduTodoMapView(
                 mapView = view
                 view.showZoomControls(false)
                 view.showScaleControl(true)
+                view.isClickable = true
+                view.isFocusable = true
                 view.setOnTouchListener { touchedView, event ->
                     when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN,
+                        MotionEvent.ACTION_DOWN -> {
+                            touchedView.requestFocus()
+                            touchedView.parent?.requestDisallowInterceptTouchEvent(true)
+                        }
+
                         MotionEvent.ACTION_MOVE,
                         MotionEvent.ACTION_POINTER_DOWN ->
                             touchedView.parent?.requestDisallowInterceptTouchEvent(true)
@@ -111,6 +117,10 @@ private class TodoMapController(private val mapView: MapView) {
         mapView.addOnLayoutChangeListener(gestureExclusionListener)
         mapView.post { updateSystemGestureExclusion(mapView) }
         baiduMap.uiSettings.setAllGesturesEnabled(true)
+        baiduMap.uiSettings.setScrollGesturesEnabled(true)
+        baiduMap.uiSettings.setZoomGesturesEnabled(true)
+        baiduMap.uiSettings.setFlingEnable(true)
+        baiduMap.uiSettings.setInertialAnimation(true)
         baiduMap.uiSettings.setRotateGesturesEnabled(false)
         baiduMap.uiSettings.setOverlookingGesturesEnabled(false)
         baiduMap.setMaxAndMinZoomLevel(20f, 4f)

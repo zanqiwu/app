@@ -1,11 +1,8 @@
 package com.opendroid.ai.ui.screens
 
 import android.Manifest
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -77,35 +74,13 @@ fun ChatScreen(
     var voiceErrorText by remember { mutableStateOf<String?>(null) }
     var hasRecordAudioPermission by remember { mutableStateOf(isRecordAudioGranted(context)) }
     var voiceStartJob by remember { mutableStateOf<Job?>(null) }
+    var speechRecognizer by remember { mutableStateOf<SpeechRecognitionEngine?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val speechRecognizer = remember { SpeechRecognitionEngine(context) }
 
     // Only move to a new message. Long streaming replies remain manually scrollable.
     LaunchedEffect(history.size) {
         if (history.isNotEmpty()) {
             listState.animateScrollToItem(history.size - 1)
-        }
-    }
-
-    val systemSpeechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        isListening = false
-        transcriptionText = ""
-        OpenDroidService.resumeAfterUiVoice(context)
-        val text = if (result.resultCode == Activity.RESULT_OK) {
-            result.data
-                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-                ?.firstOrNull()
-        } else {
-            null
-        }
-        if (!text.isNullOrBlank()) {
-            inputQuery = text
-            viewModel.sendMessage(text, context)
-            voiceErrorText = null
-        } else if (result.resultCode != Activity.RESULT_CANCELED) {
-            voiceErrorText = "系统语音识别没有返回文字，请重试或使用文字输入。"
         }
     }
 
@@ -128,17 +103,21 @@ fun ChatScreen(
         isListening = true
         transcriptionText = "正在准备麦克风..."
         voiceErrorText = null
-        OpenDroidService.pauseForUiVoice(context)
+        OpenDroidService.stop(context)
         voiceStartJob = scope.launch {
-            // Let the background wake-word recognizer fully release HyperOS audio input.
-            delay(400)
+            // Build the foreground recognizer only after every background recognizer
+            // has released its binder and microphone session.
+            delay(700)
             if (!isRecordAudioGranted(context)) {
                 finishVoiceInput()
                 voiceErrorText = "录音权限已被系统收回，请重新允许麦克风。"
                 return@launch
             }
+            speechRecognizer?.destroy()
+            val foregroundRecognizer = SpeechRecognitionEngine(context)
+            speechRecognizer = foregroundRecognizer
             transcriptionText = "正在听..."
-            speechRecognizer.startListening(
+            foregroundRecognizer.startListening(
                 onResult = { text ->
                     finishVoiceInput()
                     inputQuery = text
@@ -148,26 +127,8 @@ fun ChatScreen(
                     transcriptionText = partial
                 },
                 onError = { error ->
-                    val useSystemFallback = error.contains("permission", ignoreCase = true) &&
-                        isRecordAudioGranted(context)
                     finishVoiceInput()
-                    if (useSystemFallback) {
-                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                            putExtra(
-                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
-                            )
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                            putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出你想让手机完成的事")
-                        }
-                        try {
-                            systemSpeechLauncher.launch(intent)
-                        } catch (_: Exception) {
-                            voiceErrorText = "系统语音识别无法启动，请检查系统语音助手是否可用。"
-                        }
-                    } else {
-                        voiceErrorText = friendlyVoiceError(error, isRecordAudioGranted(context))
-                    }
+                    voiceErrorText = friendlyVoiceError(error, isRecordAudioGranted(context))
                 }
             )
         }
@@ -203,7 +164,8 @@ fun ChatScreen(
     DisposableEffect(Unit) {
         onDispose {
             voiceStartJob?.cancel()
-            speechRecognizer.destroy()
+            speechRecognizer?.destroy()
+            speechRecognizer = null
             OpenDroidService.resumeAfterUiVoice(context)
         }
     }
@@ -318,10 +280,10 @@ fun ChatScreen(
                         onClick = {
                             if (isListening) {
                                 if (voiceStartJob?.isActive == true) {
-                                    speechRecognizer.cancelListening()
+                                    speechRecognizer?.cancelListening()
                                     finishVoiceInput()
                                 } else {
-                                    speechRecognizer.stopListening()
+                                    speechRecognizer?.stopListening()
                                 }
                             } else {
                                 hasRecordAudioPermission = isRecordAudioGranted(context)
@@ -420,7 +382,7 @@ private fun friendlyVoiceError(error: String, permissionGranted: Boolean): Strin
     error.contains("not available", ignoreCase = true) ->
         "当前系统没有可用的语音识别服务，请检查系统语音助手设置。"
     error.contains("permission", ignoreCase = true) && permissionGranted ->
-        "应用录音权限已开启，但系统语音服务仍无法访问麦克风；请检查控制中心的麦克风总开关和系统语音服务。"
+        "应用录音权限已开启，但系统语音识别仍返回权限错误；后台语音服务已经停止，请再次点击语音按钮。"
     error.contains("permission", ignoreCase = true) ->
         "录音权限未开启，请在系统权限中允许麦克风。"
     error.contains("network", ignoreCase = true) ->
