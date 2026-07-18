@@ -19,6 +19,7 @@ fun InteractiveMapView(
     initialZoom: Int = 12,
     mode: MapMode = MapMode.VIEW,
     todoItems: List<com.example.data.TodoItem> = emptyList(),
+    selectedItemId: Int? = null,
     onLocationPicked: ((Double, Double) -> Unit)? = null,
     onMarkerClicked: ((Int) -> Unit)? = null
 ) {
@@ -35,7 +36,9 @@ fun InteractiveMapView(
         }
     }
 
-    val htmlContent = remember(initialLat, initialLng, initialZoom, categoryColorsJs) {
+    // Keep the WebView document stable while the selected task changes. Camera
+    // movement is sent through JavaScript instead of rebuilding the whole HTML.
+    val htmlContent = remember(initialZoom, categoryColorsJs) {
         """
         <!DOCTYPE html>
         <html>
@@ -243,6 +246,18 @@ fun InteractiveMapView(
                     if (!map) return;
                     map.panTo([lat, lng]);
                 }
+
+                function focusMarker(id, lat, lng) {
+                    if (!map) return;
+                    map.panTo([lat, lng]);
+                    for (var markerId in markers) {
+                        markers[markerId].setZIndexOffset(0);
+                    }
+                    if (markers[id]) {
+                        markers[id].setZIndexOffset(1000);
+                        markers[id].openPopup();
+                    }
+                }
             </script>
         </body>
         </html>
@@ -268,10 +283,13 @@ fun InteractiveMapView(
     }
 
     // Handle center pan updates when list items are interacted with
-    LaunchedEffect(initialLat, initialLng, isMapLoaded, webViewRef) {
+    LaunchedEffect(selectedItemId, initialLat, initialLng, isMapLoaded, webViewRef) {
         val webView = webViewRef ?: return@LaunchedEffect
         if (isMapLoaded) {
-            webView.evaluateJavascript("panTo($initialLat, $initialLng);", null)
+            val command = selectedItemId?.let {
+                "focusMarker($it, $initialLat, $initialLng);"
+            } ?: "panTo($initialLat, $initialLng);"
+            webView.evaluateJavascript(command, null)
         }
     }
 

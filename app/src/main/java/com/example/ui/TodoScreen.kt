@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
@@ -63,6 +64,9 @@ import java.util.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -583,6 +587,21 @@ fun TodoScreen(
                         }
                     }
                 } else {
+                    val mapCarouselState = rememberLazyListState()
+                    val mapCarouselFlingBehavior = rememberSnapFlingBehavior(mapCarouselState)
+                    var selectionFromMap by remember { mutableStateOf(false) }
+
+                    LaunchedEffect(itemsWithLocation) {
+                        val selectedStillExists = itemsWithLocation.any { it.id == mapSelectedItemId }
+                        if (!selectedStillExists) {
+                            itemsWithLocation.firstOrNull()?.let { first ->
+                                mapSelectedItemId = first.id
+                                mapCenterLat = first.latitude!!
+                                mapCenterLng = first.longitude!!
+                            }
+                        }
+                    }
+
                     // Split Screen: Map on top, Task Carousel at the bottom
                     Column(
                         modifier = Modifier
@@ -601,7 +620,9 @@ fun TodoScreen(
                                 initialLng = mapCenterLng,
                                 initialZoom = 13,
                                 todoItems = itemsWithLocation,
+                                selectedItemId = mapSelectedItemId,
                                 onMarkerClicked = { id ->
+                                    selectionFromMap = true
                                     mapSelectedItemId = id
                                     val match = itemsWithLocation.find { it.id == id }
                                     if (match != null) {
@@ -613,27 +634,61 @@ fun TodoScreen(
                         }
 
                         // Task Horizontal Carousel
-                        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-
-                        // Sync scrolling selection
-                        LaunchedEffect(mapSelectedItemId) {
-                            mapSelectedItemId?.let { selectedId ->
+                        // A marker click moves the carousel to the matching task.
+                        LaunchedEffect(mapSelectedItemId, selectionFromMap) {
+                            if (selectionFromMap) {
+                                mapSelectedItemId?.let { selectedId ->
                                 val index = itemsWithLocation.indexOfFirst { it.id == selectedId }
                                 if (index != -1) {
-                                    listState.animateScrollToItem(index)
+                                        mapCarouselState.animateScrollToItem(index)
+                                    }
                                 }
+                                selectionFromMap = false
                             }
                         }
 
+                        // A horizontal swipe updates the map only after scrolling
+                        // settles, preventing camera jitter during a fling.
+                        LaunchedEffect(mapCarouselState, itemsWithLocation) {
+                            snapshotFlow {
+                                if (mapCarouselState.isScrollInProgress) {
+                                    null
+                                } else {
+                                    val layoutInfo = mapCarouselState.layoutInfo
+                                    val viewportCenter =
+                                        (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+                                    layoutInfo.visibleItemsInfo
+                                        .minByOrNull { info ->
+                                            abs((info.offset + info.size / 2) - viewportCenter)
+                                        }
+                                        ?.key as? Int
+                                }
+                            }
+                                .filterNotNull()
+                                .distinctUntilChanged()
+                                .collect { selectedId ->
+                                    val selected = itemsWithLocation.firstOrNull { it.id == selectedId }
+                                        ?: return@collect
+                                    mapSelectedItemId = selected.id
+                                    mapCenterLat = selected.latitude!!
+                                    mapCenterLng = selected.longitude!!
+                                }
+                        }
+
                         androidx.compose.foundation.lazy.LazyRow(
-                            state = listState,
+                            state = mapCarouselState,
+                            flingBehavior = mapCarouselFlingBehavior,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 12.dp),
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(itemsWithLocation, key = { it.id }) { item ->
+                            items(
+                                items = itemsWithLocation,
+                                key = { it.id },
+                                contentType = { "map_todo" }
+                            ) { item ->
                                 val isSelected = mapSelectedItemId == item.id
                                 val categoryConfig = remember(item.category) { CategoryConfig.getByName(item.category) }
                                 
@@ -647,6 +702,7 @@ fun TodoScreen(
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .clickable {
+                                            selectionFromMap = false
                                             mapSelectedItemId = item.id
                                             mapCenterLat = item.latitude!!
                                             mapCenterLng = item.longitude!!
