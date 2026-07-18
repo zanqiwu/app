@@ -18,6 +18,10 @@
 
     <!-- 声明外部地图包名，以便在 Android 11+ 系统中可见并唤起 -->
     <queries>
+        <!-- Android 11+ requires explicit visibility for the system speech recognizer. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
         <!-- 高德地图 -->
         <package android:name="com.autonavi.minimap" />
         <!-- 百度地图 -->

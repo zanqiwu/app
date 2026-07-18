@@ -140,8 +140,14 @@ class TextToSpeechEngine(
     }
 
     fun stop() {
-        tts?.stop()
-        mediaPlayer?.stop()
+        try {
+            tts?.stop()
+        } catch (_: Exception) {
+        }
+        try {
+            if (mediaPlayer?.isPlaying == true) mediaPlayer?.stop()
+        } catch (_: Exception) {
+        }
     }
 
     fun destroy() {

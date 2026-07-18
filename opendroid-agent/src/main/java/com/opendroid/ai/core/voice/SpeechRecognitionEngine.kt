@@ -3,15 +3,21 @@ package com.opendroid.ai.core.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import java.util.Locale
 
-class SpeechRecognitionEngine(private val context: Context) {
+class SpeechRecognitionEngine(context: Context) {
+
+    private val context = context.applicationContext
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
+    private var isListening = false
 
     private companion object {
         const val ERROR_TOO_MANY_REQUESTS = 10
@@ -21,7 +27,7 @@ class SpeechRecognitionEngine(private val context: Context) {
     }
 
     init {
-        initializeRecognizer()
+        runOnMain { initializeRecognizer() }
     }
 
     private fun initializeRecognizer() {
@@ -29,7 +35,11 @@ class SpeechRecognitionEngine(private val context: Context) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
             recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                val language = Locale.getDefault().toLanguageTag().ifBlank { "zh-CN" }
+                val language = if (Locale.getDefault().language == Locale.CHINESE.language) {
+                    Locale.getDefault().toLanguageTag()
+                } else {
+                    Locale.SIMPLIFIED_CHINESE.toLanguageTag()
+                }
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
@@ -43,6 +53,7 @@ class SpeechRecognitionEngine(private val context: Context) {
     }
 
     private fun resetRecognizer() {
+        isListening = false
         try {
             speechRecognizer?.cancel()
         } catch (_: Exception) {
@@ -61,8 +72,22 @@ class SpeechRecognitionEngine(private val context: Context) {
         onPartialResult: (String) -> Unit = {},
         onError: (String) -> Unit
     ) {
+        runOnMain {
+            startListeningOnMain(onResult, onPartialResult, onError)
+        }
+    }
+
+    private fun startListeningOnMain(
+        onResult: (String) -> Unit,
+        onPartialResult: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (isListening) {
+            onError("Speech recognition engine busy")
+            return
+        }
         if (speechRecognizer == null) {
-            resetRecognizer()
+            initializeRecognizer()
             if (speechRecognizer == null) {
                 onError("Speech recognition not available on this device")
                 return
@@ -77,6 +102,11 @@ class SpeechRecognitionEngine(private val context: Context) {
             override fun onEndOfSpeech() {}
             
             override fun onError(error: Int) {
+                val requestWasActive = isListening
+                isListening = false
+                if (!requestWasActive && error == SpeechRecognizer.ERROR_CLIENT) {
+                    return
+                }
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                     SpeechRecognizer.ERROR_CLIENT -> "Client side error"
@@ -99,11 +129,14 @@ class SpeechRecognitionEngine(private val context: Context) {
                     error == ERROR_TOO_MANY_REQUESTS ||
                     error == ERROR_SERVER_DISCONNECTED
                 ) {
-                    resetRecognizer()
+                    // Xiaomi's recognition service can disconnect if it is destroyed
+                    // from inside its own binder callback. Recreate it on the next loop.
+                    mainHandler.post { resetRecognizer() }
                 }
             }
 
             override fun onResults(results: Bundle?) {
+                isListening = false
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
                     onResult(matches[0])
@@ -123,6 +156,7 @@ class SpeechRecognitionEngine(private val context: Context) {
         })
 
         try {
+            isListening = true
             speechRecognizer?.startListening(recognizerIntent)
         } catch (e: Exception) {
             resetRecognizer()
@@ -131,17 +165,42 @@ class SpeechRecognitionEngine(private val context: Context) {
     }
 
     fun stopListening() {
-        try {
-            speechRecognizer?.stopListening()
-        } catch (_: Exception) {
+        runOnMain {
+            try {
+                speechRecognizer?.stopListening()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    fun cancelListening() {
+        runOnMain {
+            try {
+                speechRecognizer?.cancel()
+            } catch (_: Exception) {
+            }
+            isListening = false
         }
     }
 
     fun destroy() {
-        try {
-            speechRecognizer?.destroy()
-        } catch (_: Exception) {
+        runOnMain {
+            try {
+                speechRecognizer?.cancel()
+                speechRecognizer?.destroy()
+            } catch (_: Exception) {
+            }
+            isListening = false
+            speechRecognizer = null
+            recognizerIntent = null
         }
-        speechRecognizer = null
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
+        }
     }
 }
