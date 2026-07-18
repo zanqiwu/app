@@ -43,10 +43,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.service.OpenDroidService
+import com.opendroid.ai.core.voice.SpeechRecognitionEngine
 import com.opendroid.ai.data.models.ChatMessage
 import com.opendroid.ai.ui.components.ContactPickerCard
 import com.opendroid.ai.ui.theme.*
 import com.opendroid.ai.ui.viewmodel.ChatViewModel
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,22 +63,70 @@ fun ChatScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val history by viewModel.conversationHistory.collectAsState()
     val agentState by viewModel.agentState.collectAsState()
-    val voiceInputState by OpenDroidService.voiceInputState.collectAsState()
     
     val listState = rememberLazyListState()
     var inputQuery by remember { mutableStateOf("") }
+    var isListening by remember { mutableStateOf(false) }
+    var transcriptionText by remember { mutableStateOf("") }
     var voiceErrorText by remember { mutableStateOf<String?>(null) }
     var hasRecordAudioPermission by remember { mutableStateOf(isRecordAudioGranted(context)) }
+    var voiceStartJob by remember { mutableStateOf<Job?>(null) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isListening = voiceInputState.isListening
-    val transcriptionText = voiceInputState.partialText.ifBlank { "正在听..." }
+    val speechRecognizer = remember { SpeechRecognitionEngine(context) }
 
     // Only move to a new message. Long streaming replies remain manually scrollable.
     LaunchedEffect(history.size) {
         if (history.isNotEmpty()) {
             listState.animateScrollToItem(history.size - 1)
+        }
+    }
+
+    fun finishVoiceInput() {
+        voiceStartJob?.cancel()
+        voiceStartJob = null
+        isListening = false
+        transcriptionText = ""
+        OpenDroidService.resumeAfterUiVoice(context)
+    }
+
+    fun beginVoiceRecognition() {
+        hasRecordAudioPermission = isRecordAudioGranted(context)
+        if (!hasRecordAudioPermission) {
+            voiceErrorText = "录音权限未开启，请在系统权限中允许麦克风，或先使用文字输入。"
+            return
+        }
+
+        voiceStartJob?.cancel()
+        isListening = true
+        transcriptionText = "正在准备麦克风..."
+        voiceErrorText = null
+        OpenDroidService.pauseForUiVoice(context)
+        voiceStartJob = scope.launch {
+            // Let the background wake-word recognizer fully release HyperOS audio input.
+            delay(400)
+            if (!isRecordAudioGranted(context)) {
+                finishVoiceInput()
+                voiceErrorText = "录音权限已被系统收回，请重新允许麦克风。"
+                return@launch
+            }
+            transcriptionText = "正在听..."
+            speechRecognizer.startListening(
+                onResult = { text ->
+                    finishVoiceInput()
+                    inputQuery = text
+                    viewModel.sendMessage(text, context)
+                },
+                onPartialResult = { partial ->
+                    transcriptionText = partial
+                },
+                onError = { error ->
+                    finishVoiceInput()
+                    voiceErrorText = friendlyVoiceError(error, isRecordAudioGranted(context))
+                }
+            )
         }
     }
 
@@ -84,7 +136,7 @@ fun ChatScreen(
         hasRecordAudioPermission = isGranted || isRecordAudioGranted(context)
         if (hasRecordAudioPermission) {
             voiceErrorText = null
-            OpenDroidService.requestVoiceInput(context)
+            beginVoiceRecognition()
         } else {
             voiceErrorText = "请先允许录音权限，或直接使用文字输入。"
         }
@@ -105,8 +157,12 @@ fun ChatScreen(
         }
     }
 
-    LaunchedEffect(voiceInputState.error) {
-        voiceInputState.error?.let { voiceErrorText = it }
+    DisposableEffect(Unit) {
+        onDispose {
+            voiceStartJob?.cancel()
+            speechRecognizer.destroy()
+            OpenDroidService.resumeAfterUiVoice(context)
+        }
     }
 
     Scaffold(
@@ -218,7 +274,12 @@ fun ChatScreen(
                         agentState = agentState,
                         onClick = {
                             if (isListening) {
-                                OpenDroidService.cancelVoiceInput(context)
+                                if (voiceStartJob?.isActive == true) {
+                                    speechRecognizer.cancelListening()
+                                    finishVoiceInput()
+                                } else {
+                                    speechRecognizer.stopListening()
+                                }
                             } else {
                                 hasRecordAudioPermission = isRecordAudioGranted(context)
                                 val audioPerm = if (hasRecordAudioPermission) {
@@ -228,7 +289,7 @@ fun ChatScreen(
                                 }
                                 if (audioPerm == PackageManager.PERMISSION_GRANTED) {
                                     voiceErrorText = null
-                                    OpenDroidService.requestVoiceInput(context)
+                                    beginVoiceRecognition()
                                 } else {
                                     voiceErrorText = "请先允许录音权限，或直接使用文字输入。"
                                     recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
@@ -310,6 +371,29 @@ private fun isRecordAudioGranted(context: Context): Boolean {
         context,
         Manifest.permission.RECORD_AUDIO
     ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun friendlyVoiceError(error: String, permissionGranted: Boolean): String = when {
+    error.contains("not available", ignoreCase = true) ->
+        "当前系统没有可用的语音识别服务，请检查系统语音助手设置。"
+    error.contains("permission", ignoreCase = true) && permissionGranted ->
+        "应用录音权限已开启，但系统语音服务仍无法访问麦克风；请检查控制中心的麦克风总开关和系统语音服务。"
+    error.contains("permission", ignoreCase = true) ->
+        "录音权限未开启，请在系统权限中允许麦克风。"
+    error.contains("network", ignoreCase = true) ->
+        "语音识别网络不可用，请检查网络后重试。"
+    error.contains("No speech", ignoreCase = true) ||
+        error.contains("timeout", ignoreCase = true) ->
+        "没有识别到语音，请靠近麦克风后重试。"
+    error.contains("disconnected", ignoreCase = true) ||
+        error.contains("(11)", ignoreCase = true) ->
+        "系统语音识别服务已断开，请稍等一秒后重试。"
+    error.contains("busy", ignoreCase = true) ||
+        error.contains("too many", ignoreCase = true) ->
+        "语音识别服务正忙，请稍等一秒后重试。"
+    error.contains("language", ignoreCase = true) ->
+        "系统中文语音识别不可用，请在系统语音服务中启用中文。"
+    else -> "语音输入失败：$error"
 }
 
 @Composable

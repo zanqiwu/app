@@ -56,6 +56,8 @@ class OpenDroidService : Service() {
     companion object {
         const val ACTION_TRIGGER_RECORD = "com.opendroid.ai.action.TRIGGER_RECORD"
         const val ACTION_CANCEL_RECORD = "com.opendroid.ai.action.CANCEL_RECORD"
+        const val ACTION_PAUSE_FOR_UI_VOICE = "com.opendroid.ai.action.PAUSE_FOR_UI_VOICE"
+        const val ACTION_RESUME_AFTER_UI_VOICE = "com.opendroid.ai.action.RESUME_AFTER_UI_VOICE"
         private const val CHANNEL_ID = "opendroid_channel"
         private const val NOTIFICATION_ID = 2024
 
@@ -98,6 +100,27 @@ class OpenDroidService : Service() {
             }
             context.startService(intent)
             _voiceInputState.value = VoiceInputUiState()
+        }
+
+        fun pauseForUiVoice(context: Context) {
+            val intent = Intent(context, OpenDroidService::class.java).apply {
+                action = ACTION_PAUSE_FOR_UI_VOICE
+            }
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (_: Exception) {
+                // If the service is not running, there is no background recognizer to pause.
+            }
+        }
+
+        fun resumeAfterUiVoice(context: Context) {
+            val intent = Intent(context, OpenDroidService::class.java).apply {
+                action = ACTION_RESUME_AFTER_UI_VOICE
+            }
+            try {
+                context.startService(intent)
+            } catch (_: Exception) {
+            }
         }
 
         fun stop(context: Context) {
@@ -212,6 +235,18 @@ class OpenDroidService : Service() {
                 speechRecognitionEngine.cancelListening()
                 _voiceInputState.value = VoiceInputUiState()
                 agentLoop.setAgentState(AgentState.Idle)
+                if (!showFloatingButton) startWakeWordDetection()
+            }
+            ACTION_PAUSE_FOR_UI_VOICE -> {
+                voiceStartJob?.cancel()
+                voiceStartJob = null
+                wakeWordDetector.stopListening()
+                speechRecognitionEngine.cancelListening()
+                textToSpeechEngine.stop()
+                _voiceInputState.value = VoiceInputUiState()
+                agentLoop.setAgentState(AgentState.Idle)
+            }
+            ACTION_RESUME_AFTER_UI_VOICE -> {
                 if (!showFloatingButton) startWakeWordDetection()
             }
         }

@@ -614,13 +614,10 @@ fun TodoScreen(
                                 .fillMaxWidth()
                                 .weight(1.3f)
                         ) {
-                            InteractiveMapView(
-                                mode = MapMode.VIEW,
-                                initialLat = mapCenterLat,
-                                initialLng = mapCenterLng,
-                                initialZoom = 13,
+                            BaiduTodoMapView(
                                 todoItems = itemsWithLocation,
                                 selectedItemId = mapSelectedItemId,
+                                modifier = Modifier.fillMaxSize(),
                                 onMarkerClicked = { id ->
                                     selectionFromMap = true
                                     mapSelectedItemId = id
