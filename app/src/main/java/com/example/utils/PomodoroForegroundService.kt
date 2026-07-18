@@ -32,6 +32,16 @@ class PomodoroForegroundService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // HyperOS may remove the activity task while leaving an active user-started
+        // timer running. Re-publish the foreground notification immediately.
+        val state = PomodoroStore.load(this)
+        if (state.isRunning && state.remainingSeconds > 0) {
+            PomodoroNotifier.updateRunningNotification(this, state)
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         refreshJob?.cancel()
         super.onDestroy()

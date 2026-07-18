@@ -25,6 +25,9 @@ interface TodoDao {
     @Update
     suspend fun updateTodoItem(item: TodoItem)
 
+    @Update
+    suspend fun updateTodoItems(items: List<TodoItem>)
+
     @Delete
     suspend fun deleteTodoItem(item: TodoItem)
 

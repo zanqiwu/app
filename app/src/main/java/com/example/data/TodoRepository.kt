@@ -14,6 +14,8 @@ class TodoRepository(
 
     suspend fun update(item: TodoItem) = todoDao.updateTodoItem(item)
 
+    suspend fun updateAll(items: List<TodoItem>) = todoDao.updateTodoItems(items)
+
     suspend fun delete(item: TodoItem) = todoDao.deleteTodoItem(item)
 
     suspend fun deleteCompleted() = todoDao.deleteCompletedItems()

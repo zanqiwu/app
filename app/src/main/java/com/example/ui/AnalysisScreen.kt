@@ -27,9 +27,21 @@ import com.example.utils.DateUtils
 import com.example.utils.PomodoroStore
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 data class BarData(val label: String, val value: Int)
 data class FocusBarData(val label: String, val seconds: Int)
+private data class AnalysisSnapshot(
+    val totalTasks: Int = 0,
+    val completedCount: Int = 0,
+    val last7DaysData: List<BarData> = emptyList(),
+    val last6MonthsData: List<BarData> = emptyList(),
+    val todayFocusSeconds: Int = 0,
+    val last7DaysFocusData: List<FocusBarData> = emptyList(),
+    val last6MonthsFocusData: List<FocusBarData> = emptyList(),
+    val categoryCounts: Map<String, Int> = emptyMap()
+)
 
 @Composable
 fun AnalysisScreenContent(
@@ -43,130 +55,26 @@ fun AnalysisScreenContent(
     var chartTab by remember { mutableStateOf(0) } // 0: Week, 1: Month
     var focusChartTab by remember { mutableStateOf(0) } // 0: Week, 1: Month
 
-    val totalTasks = todoItems.size
-    val completedItems = remember(todoItems) { todoItems.filter { it.isCompleted } }
-    val completedCount = completedItems.size
+    val snapshot by produceState(
+        initialValue = AnalysisSnapshot(),
+        todoItems,
+        currentDayKey,
+        pomodoroRunning
+    ) {
+        value = withContext(Dispatchers.Default) {
+            buildAnalysisSnapshot(context, todoItems, currentDayKey)
+        }
+    }
+    val totalTasks = snapshot.totalTasks
+    val completedCount = snapshot.completedCount
     val completionRate = if (totalTasks > 0) (completedCount * 100) / totalTasks else 0
-
-    // 1. Weekly completion stats (last 7 days ending today)
-    val last7DaysData = remember(completedItems, currentDayKey) {
-        val result = mutableListOf<BarData>()
-        val sdfLabel = SimpleDateFormat("E", Locale.CHINA) // e.g. "周一", "周二"
-        
-        // Generate last 7 days ending today in chronological order
-        val dates = (0..6).map { offset ->
-            val tempCal = Calendar.getInstance()
-            tempCal.add(Calendar.DAY_OF_YEAR, -offset)
-            tempCal
-        }.reversed()
-        
-        dates.forEach { dateCal ->
-            val label = sdfLabel.format(dateCal.time)
-            
-            val startOfDay = Calendar.getInstance().apply {
-                time = dateCal.time
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-            
-            val endOfDay = startOfDay + 24 * 60 * 60 * 1000 - 1
-            
-            val count = completedItems.count { item ->
-                val itemTime = item.completedAt ?: item.dueDate ?: item.createdAt
-                itemTime in startOfDay..endOfDay
-            }
-            result.add(BarData(label, count))
-        }
-        result
-    }
-
-    // 2. Monthly completion stats (last 6 months ending current month)
-    val last6MonthsData = remember(completedItems, currentDayKey) {
-        val result = mutableListOf<BarData>()
-        val sdfLabel = SimpleDateFormat("M月", Locale.CHINA) // e.g. "7月", "6月"
-        
-        val months = (0..5).map { offset ->
-            val tempCal = Calendar.getInstance()
-            tempCal.add(Calendar.MONTH, -offset)
-            tempCal
-        }.reversed()
-        
-        months.forEach { monthCal ->
-            val label = sdfLabel.format(monthCal.time)
-            val year = monthCal.get(Calendar.YEAR)
-            val month = monthCal.get(Calendar.MONTH)
-            
-            val startOfMonth = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, 1)
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }.timeInMillis
-            
-            val endOfMonth = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, monthCal.getActualMaximum(Calendar.DAY_OF_MONTH))
-                set(Calendar.HOUR_OF_DAY, 23)
-                set(Calendar.MINUTE, 59)
-                set(Calendar.SECOND, 59)
-                set(Calendar.MILLISECOND, 999)
-            }.timeInMillis
-            
-            val count = completedItems.count { item ->
-                val itemTime = item.completedAt ?: item.dueDate ?: item.createdAt
-                itemTime in startOfMonth..endOfMonth
-            }
-            result.add(BarData(label, count))
-        }
-        result
-    }
-
-    // Identify most productive day/month
+    val last7DaysData = snapshot.last7DaysData
+    val last6MonthsData = snapshot.last6MonthsData
     val weekBest = last7DaysData.maxByOrNull { it.value }
     val monthBest = last6MonthsData.maxByOrNull { it.value }
-    val todayFocusSeconds = remember(currentDayKey, pomodoroRunning) {
-        PomodoroStore.focusSecondsForDay(context, currentDayKey)
-    }
-    val last7DaysFocusData = remember(currentDayKey, pomodoroRunning) {
-        (0..6).map { offset ->
-            val tempCal = Calendar.getInstance()
-            tempCal.add(Calendar.DAY_OF_YEAR, -offset)
-            val label = SimpleDateFormat("E", Locale.CHINA).format(tempCal.time)
-            val dayKey = DateUtils.dayKey(tempCal.timeInMillis)
-            FocusBarData(label, PomodoroStore.focusSecondsForDay(context, dayKey))
-        }.reversed()
-    }
-    val last6MonthsFocusData = remember(currentDayKey, pomodoroRunning) {
-        (0..5).map { offset ->
-            val monthCal = Calendar.getInstance()
-            monthCal.add(Calendar.MONTH, -offset)
-            val label = SimpleDateFormat("M月", Locale.CHINA).format(monthCal.time)
-            val year = monthCal.get(Calendar.YEAR)
-            val month = monthCal.get(Calendar.MONTH)
-            var seconds = 0
-            val dayCal = Calendar.getInstance().apply {
-                set(Calendar.YEAR, year)
-                set(Calendar.MONTH, month)
-                set(Calendar.DAY_OF_MONTH, 1)
-                set(Calendar.HOUR_OF_DAY, 0)
-                set(Calendar.MINUTE, 0)
-                set(Calendar.SECOND, 0)
-                set(Calendar.MILLISECOND, 0)
-            }
-            val maxDay = dayCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-            repeat(maxDay) {
-                seconds += PomodoroStore.focusSecondsForDay(context, DateUtils.dayKey(dayCal.timeInMillis))
-                dayCal.add(Calendar.DAY_OF_MONTH, 1)
-            }
-            FocusBarData(label, seconds)
-        }.reversed()
-    }
+    val todayFocusSeconds = snapshot.todayFocusSeconds
+    val last7DaysFocusData = snapshot.last7DaysFocusData
+    val last6MonthsFocusData = snapshot.last6MonthsFocusData
     val selectedFocusData = if (focusChartTab == 0) last7DaysFocusData else last6MonthsFocusData
     val selectedFocusTotalSeconds = selectedFocusData.sumOf { it.seconds }
     val selectedFocusBest = selectedFocusData.maxByOrNull { it.seconds }
@@ -463,9 +371,9 @@ fun AnalysisScreenContent(
                     }
 
                     // Insight 2: Task categorization info
-                    val totalWork = todoItems.count { it.category == "工作" }
-                    val totalStudy = todoItems.count { it.category == "学习" }
-                    val totalLife = todoItems.count { it.category == "生活" }
+                    val totalWork = snapshot.categoryCounts["工作"] ?: 0
+                    val totalStudy = snapshot.categoryCounts["学习"] ?: 0
+                    val totalLife = snapshot.categoryCounts["生活"] ?: 0
                     val largestCategory = listOf("工作" to totalWork, "学习" to totalStudy, "生活" to totalLife)
                         .maxByOrNull { it.second }
                     
@@ -791,4 +699,84 @@ private fun formatFocusBarValue(seconds: Int, useHours: Boolean): String {
     } else {
         "${(seconds + 59) / 60}"
     }
+}
+
+private fun buildAnalysisSnapshot(
+    context: android.content.Context,
+    todoItems: List<TodoItem>,
+    currentDayKey: String
+): AnalysisSnapshot {
+    val completedItems = todoItems.filter(TodoItem::isCompleted)
+    val baseMillis = DateUtils.startOfDayMillis(currentDayKey)
+    val baseCalendar = Calendar.getInstance().apply { timeInMillis = baseMillis }
+    val dayLabel = SimpleDateFormat("E", Locale.CHINA)
+    val monthLabel = SimpleDateFormat("M月", Locale.CHINA)
+
+    val last7Days = (6 downTo 0).map { offset ->
+        val day = (baseCalendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -offset) }
+        val start = day.timeInMillis
+        val end = (day.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }.timeInMillis
+        BarData(
+            label = dayLabel.format(day.time),
+            value = completedItems.count { item ->
+                val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
+                timestamp in start until end
+            }
+        )
+    }
+
+    val last6Months = (5 downTo 0).map { offset ->
+        val month = (baseCalendar.clone() as Calendar).apply {
+            add(Calendar.MONTH, -offset)
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val start = month.timeInMillis
+        val end = (month.clone() as Calendar).apply { add(Calendar.MONTH, 1) }.timeInMillis
+        BarData(
+            label = monthLabel.format(month.time),
+            value = completedItems.count { item ->
+                val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
+                timestamp in start until end
+            }
+        )
+    }
+
+    val last7DaysFocus = (6 downTo 0).map { offset ->
+        val day = (baseCalendar.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -offset) }
+        FocusBarData(
+            label = dayLabel.format(day.time),
+            seconds = PomodoroStore.focusSecondsForDay(context, DateUtils.dayKey(day.timeInMillis))
+        )
+    }
+
+    val last6MonthsFocus = (5 downTo 0).map { offset ->
+        val month = (baseCalendar.clone() as Calendar).apply {
+            add(Calendar.MONTH, -offset)
+            set(Calendar.DAY_OF_MONTH, 1)
+        }
+        val maxDay = month.getActualMaximum(Calendar.DAY_OF_MONTH)
+        var seconds = 0
+        repeat(maxDay) {
+            seconds += PomodoroStore.focusSecondsForDay(context, DateUtils.dayKey(month.timeInMillis))
+            month.add(Calendar.DAY_OF_MONTH, 1)
+        }
+        FocusBarData(monthLabel.format((baseCalendar.clone() as Calendar).apply {
+            add(Calendar.MONTH, -offset)
+        }.time), seconds)
+    }
+
+    return AnalysisSnapshot(
+        totalTasks = todoItems.size,
+        completedCount = completedItems.size,
+        last7DaysData = last7Days,
+        last6MonthsData = last6Months,
+        todayFocusSeconds = PomodoroStore.focusSecondsForDay(context, currentDayKey),
+        last7DaysFocusData = last7DaysFocus,
+        last6MonthsFocusData = last6MonthsFocus,
+        categoryCounts = todoItems.groupingBy(TodoItem::category).eachCount()
+    )
 }

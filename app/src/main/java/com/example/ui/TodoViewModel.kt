@@ -14,12 +14,14 @@ import com.example.utils.PomodoroState
 import com.example.utils.PomodoroStore
 import com.example.widget.TodoAppWidgetProvider
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -84,7 +86,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
             matchesQuery && matchesCategory
         }
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
@@ -128,7 +130,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             todayCompleted = todayCompleted,
             yesterdayUnfinished = yesterdayUnfinished
         )
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = TaskStats()
@@ -310,9 +312,11 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateTodoOrder(orderedItems: List<TodoItem>) {
         viewModelScope.launch {
-            orderedItems.forEachIndexed { index, item ->
-                repository.update(item.copy(sortOrder = index.toLong() * 1_000L))
-            }
+            repository.updateAll(
+                orderedItems.mapIndexed { index, item ->
+                    item.copy(sortOrder = index.toLong() * 1_000L)
+                }
+            )
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }
@@ -507,6 +511,16 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
+
+    val completedTodoItems: StateFlow<List<TodoItem>> = repository.allItems
+        .map { items -> items.filter(TodoItem::isCompleted) }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
 
     // Weekly Report states
     val weeklyReportContent = MutableStateFlow<String?>(null)

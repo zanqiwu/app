@@ -496,11 +496,13 @@ fun TodayTodoPlanSectionCard(
                     )
                 }
             } else {
-                Column(
+                LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((todos.size * 58).coerceAtMost(300).dp)
                 ) {
-                    todos.forEach { todo ->
+                    items(todos, key = { it.id }, contentType = { "today_todo" }) { todo ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -729,11 +731,13 @@ fun PlanSectionCard(
                     )
                 }
             } else {
-                Column(
+                LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((plans.size * 58).coerceAtMost(300).dp)
                 ) {
-                    plans.forEach { plan ->
+                    items(plans, key = { it.id }, contentType = { "segmented_plan" }) { plan ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

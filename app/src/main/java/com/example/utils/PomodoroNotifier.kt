@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.provider.Settings
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
@@ -23,15 +24,44 @@ import com.example.MainActivity
 import com.example.R
 
 object PomodoroNotifier {
-    const val RUNNING_CHANNEL_ID = "pomodoro_running_channel_v3"
+    // A new id is intentional: Android does not let an app restore the importance
+    // or lock-screen visibility of an existing channel after it was downgraded.
+    const val RUNNING_CHANNEL_ID = "pomodoro_running_channel_v4"
     private const val FINISHED_CHANNEL_ID = "pomodoro_finished_channel"
     const val RUNNING_NOTIFICATION_ID = 2601
     private const val FINISHED_NOTIFICATION_ID = 2602
     private const val FINISH_REQUEST_CODE = 2603
 
     fun hasNotificationPermission(context: Context): Boolean {
-        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        return runtimeGranted && NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    fun isRunningChannelEnabled(context: Context): Boolean {
+        if (!hasNotificationPermission(context)) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        ensureChannels(context)
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channel = manager.getNotificationChannel(RUNNING_CHANNEL_ID) ?: return false
+        return channel.importance != NotificationManager.IMPORTANCE_NONE &&
+            channel.lockscreenVisibility != android.app.Notification.VISIBILITY_SECRET
+    }
+
+    fun openRunningChannelSettings(context: Context) {
+        ensureChannels(context)
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                putExtra(Settings.EXTRA_CHANNEL_ID, RUNNING_CHANNEL_ID)
+            }
+        } else {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+            }
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
     }
 
     fun onTimerStarted(context: Context, state: PomodoroState) {
@@ -81,8 +111,10 @@ object PomodoroNotifier {
             .setShowWhen(true)
             .setColor(ContextCompat.getColor(context, R.color.pomodoro_primary))
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory("stopwatch")
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .setSilent(true)
             .setTicker("番茄钟专注中")
             .setPublicVersion(
                 NotificationCompat.Builder(context, RUNNING_CHANNEL_ID)
@@ -90,7 +122,8 @@ object PomodoroNotifier {
                     .setContentTitle("番茄钟进行中")
                     .setContentText(formatRemainingText(state.remainingSeconds))
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    .setCategory(NotificationCompat.CATEGORY_ALARM)
+                    .setCategory("stopwatch")
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .build()
             )
             .build()
@@ -209,6 +242,7 @@ object PomodoroNotifier {
         ).apply {
             description = "以小卡片形式在锁屏和通知栏显示番茄钟剩余时间"
             lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            setShowBadge(false)
             setSound(null, null)
             enableVibration(false)
         }

@@ -49,7 +49,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.TodoItem
+import com.example.utils.PomodoroNotifier
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -761,6 +765,8 @@ fun TodoScreen(
                     var orderedItems by remember { mutableStateOf(items) }
                     var draggingItemId by remember { mutableStateOf<Int?>(null) }
                     var draggedOffsetY by remember { mutableStateOf(0f) }
+                    val latestOrderedItems by rememberUpdatedState(orderedItems)
+                    val latestSourceItems by rememberUpdatedState(items)
                     LaunchedEffect(items) {
                         if (draggingItemId == null) {
                             orderedItems = items
@@ -776,7 +782,11 @@ fun TodoScreen(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(if (isCompactMode) 6.dp else 10.dp)
                     ) {
-                        items(orderedItems, key = { it.id }) { item ->
+                        items(
+                            items = orderedItems,
+                            key = { it.id },
+                            contentType = { "todo_item" }
+                        ) { item ->
                             val isDragging = draggingItemId == item.id
                             val dragModifier = Modifier
                                 .zIndex(if (isDragging) 1f else 0f)
@@ -785,38 +795,39 @@ fun TodoScreen(
                                     scaleX = if (isDragging) 1.02f else 1f
                                     scaleY = if (isDragging) 1.02f else 1f
                                 }
-                                .pointerInput(item.id, orderedItems) {
+                                .pointerInput(item.id) {
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = {
                                             draggingItemId = item.id
                                             draggedOffsetY = 0f
                                         },
                                         onDragEnd = {
-                                            viewModel.updateTodoOrder(orderedItems)
+                                            viewModel.updateTodoOrder(latestOrderedItems)
                                             draggingItemId = null
                                             draggedOffsetY = 0f
                                         },
                                         onDragCancel = {
-                                            orderedItems = items
+                                            orderedItems = latestSourceItems
                                             draggingItemId = null
                                             draggedOffsetY = 0f
                                         },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
-                                            val currentIndex = orderedItems.indexOfFirst { it.id == item.id }
+                                            val currentItems = latestOrderedItems
+                                            val currentIndex = currentItems.indexOfFirst { it.id == item.id }
                                             if (currentIndex == -1) return@detectDragGesturesAfterLongPress
 
                                             draggedOffsetY += dragAmount.y
                                             val visibleInfo = todoListState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == item.id }
                                             val threshold = ((visibleInfo?.size ?: 96) * 0.55f).coerceAtLeast(32f)
                                             val targetIndex = when {
-                                                draggedOffsetY > threshold && currentIndex < orderedItems.lastIndex -> currentIndex + 1
+                                                draggedOffsetY > threshold && currentIndex < currentItems.lastIndex -> currentIndex + 1
                                                 draggedOffsetY < -threshold && currentIndex > 0 -> currentIndex - 1
                                                 else -> currentIndex
                                             }
 
                                             if (targetIndex != currentIndex) {
-                                                orderedItems = orderedItems.toMutableList().apply {
+                                                orderedItems = currentItems.toMutableList().apply {
                                                     add(targetIndex, removeAt(currentIndex))
                                                 }
                                                 draggedOffsetY = 0f
@@ -1453,7 +1464,7 @@ fun TodoItemRow(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(item.imageUrl)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = "任务配图",
                     contentScale = ContentScale.Crop,
@@ -2994,10 +3005,24 @@ fun ExtensionsScreenContent(
     context: android.content.Context
 ) {
     val pomodoroState by viewModel.pomodoroState.collectAsStateWithLifecycle()
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var notificationChannelEnabled by remember {
+        mutableStateOf(PomodoroNotifier.isRunningChannelEnabled(context))
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                notificationChannelEnabled = PomodoroNotifier.isRunningChannelEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
+            notificationChannelEnabled = PomodoroNotifier.isRunningChannelEnabled(context)
             viewModel.togglePomodoro()
         } else {
             Toast.makeText(context, "未开启通知权限，锁屏倒计时和完成提醒可能无法显示。", Toast.LENGTH_LONG).show()
@@ -3012,6 +3037,9 @@ fun ExtensionsScreenContent(
             ) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else if (!pomodoroState.isRunning && !PomodoroNotifier.isRunningChannelEnabled(context)) {
+            PomodoroNotifier.openRunningChannelSettings(context)
+            Toast.makeText(context, "请允许“番茄钟锁屏倒计时”渠道显示通知和锁屏通知。", Toast.LENGTH_LONG).show()
         } else {
             viewModel.togglePomodoro()
         }
@@ -3070,8 +3098,22 @@ fun ExtensionsScreenContent(
                             .fillMaxWidth()
                             .padding(top = 8.dp)
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (notificationChannelEnabled) "番茄钟通知渠道：可发送" else "番茄钟通知渠道：被关闭",
+                            fontSize = 11.sp,
+                            color = if (notificationChannelEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                        TextButton(onClick = { PomodoroNotifier.openRunningChannelSettings(context) }) {
+                            Text("通知设置", fontSize = 11.sp)
+                        }
+                    }
                     
-                    Spacer(modifier = Modifier.height(24.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
                     
                     Box(
                         contentAlignment = Alignment.Center,
@@ -3514,15 +3556,10 @@ fun WeeklyReportScreenContent(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val allItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val completedTasks by viewModel.completedTodoItems.collectAsStateWithLifecycle()
     val reportContent by viewModel.weeklyReportContent.collectAsStateWithLifecycle()
     val reportLoading by viewModel.weeklyReportLoading.collectAsStateWithLifecycle()
     val reportError by viewModel.weeklyReportError.collectAsStateWithLifecycle()
-
-    // Filter completed tasks
-    val completedTasks = remember(allItems) {
-        allItems.filter { it.isCompleted }
-    }
 
     // Active Category Filter for completed tasks list
     var selectedCategory by remember { mutableStateOf("全部") }
@@ -3709,11 +3746,17 @@ fun WeeklyReportScreenContent(
                         )
                     }
                 } else {
-                    Column(
+                    LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height((displayedTasks.size * 64).coerceAtMost(320).dp)
                     ) {
-                        displayedTasks.forEach { task ->
+                        items(
+                            items = displayedTasks,
+                            key = { it.id },
+                            contentType = { "weekly_task" }
+                        ) { task ->
                             val isChecked = selectedTaskIds[task.id] ?: false
                             Row(
                                 modifier = Modifier
