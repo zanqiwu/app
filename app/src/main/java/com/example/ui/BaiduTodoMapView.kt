@@ -4,7 +4,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
+import android.os.Build
 import android.view.MotionEvent
+import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
@@ -100,7 +103,13 @@ private class TodoMapController(private val mapView: MapView) {
 
     var onMarkerClicked: (Int) -> Unit = {}
 
+    private val gestureExclusionListener = View.OnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+        updateSystemGestureExclusion(view)
+    }
+
     init {
+        mapView.addOnLayoutChangeListener(gestureExclusionListener)
+        mapView.post { updateSystemGestureExclusion(mapView) }
         baiduMap.uiSettings.setAllGesturesEnabled(true)
         baiduMap.uiSettings.setRotateGesturesEnabled(false)
         baiduMap.uiSettings.setOverlookingGesturesEnabled(false)
@@ -162,11 +171,21 @@ private class TodoMapController(private val mapView: MapView) {
     }
 
     fun destroy() {
+        mapView.removeOnLayoutChangeListener(gestureExclusionListener)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            mapView.systemGestureExclusionRects = emptyList()
+        }
         baiduMap.setOnMarkerClickListener(null)
         baiduMap.clear()
         markerIds.clear()
         markerIcons.forEach(BitmapDescriptor::recycle)
         markerIcons.clear()
+    }
+
+    private fun updateSystemGestureExclusion(view: View) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && view.width > 0 && view.height > 0) {
+            view.systemGestureExclusionRects = listOf(Rect(0, 0, view.width, view.height))
+        }
     }
 }
 

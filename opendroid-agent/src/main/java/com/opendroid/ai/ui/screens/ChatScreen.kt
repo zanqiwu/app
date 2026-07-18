@@ -1,8 +1,11 @@
 package com.opendroid.ai.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.speech.RecognizerIntent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -84,6 +87,28 @@ fun ChatScreen(
         }
     }
 
+    val systemSpeechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isListening = false
+        transcriptionText = ""
+        OpenDroidService.resumeAfterUiVoice(context)
+        val text = if (result.resultCode == Activity.RESULT_OK) {
+            result.data
+                ?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+        } else {
+            null
+        }
+        if (!text.isNullOrBlank()) {
+            inputQuery = text
+            viewModel.sendMessage(text, context)
+            voiceErrorText = null
+        } else if (result.resultCode != Activity.RESULT_CANCELED) {
+            voiceErrorText = "系统语音识别没有返回文字，请重试或使用文字输入。"
+        }
+    }
+
     fun finishVoiceInput() {
         voiceStartJob?.cancel()
         voiceStartJob = null
@@ -123,8 +148,26 @@ fun ChatScreen(
                     transcriptionText = partial
                 },
                 onError = { error ->
+                    val useSystemFallback = error.contains("permission", ignoreCase = true) &&
+                        isRecordAudioGranted(context)
                     finishVoiceInput()
-                    voiceErrorText = friendlyVoiceError(error, isRecordAudioGranted(context))
+                    if (useSystemFallback) {
+                        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                            putExtra(
+                                RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
+                            )
+                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                            putExtra(RecognizerIntent.EXTRA_PROMPT, "请说出你想让手机完成的事")
+                        }
+                        try {
+                            systemSpeechLauncher.launch(intent)
+                        } catch (_: Exception) {
+                            voiceErrorText = "系统语音识别无法启动，请检查系统语音助手是否可用。"
+                        }
+                    } else {
+                        voiceErrorText = friendlyVoiceError(error, isRecordAudioGranted(context))
+                    }
                 }
             )
         }
