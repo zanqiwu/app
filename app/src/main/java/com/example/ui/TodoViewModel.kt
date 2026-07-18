@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.AppDatabase
+import com.example.data.DailyTodoSnapshot
 import com.example.data.TodoItem
 import com.example.data.TodoRepository
 import com.example.data.SegmentedPlan
@@ -24,6 +25,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+
+data class RolloverCandidate(
+    val todo: TodoItem,
+    val archiveDay: String
+)
 
 class TodoViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: TodoRepository
@@ -60,14 +66,18 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = TodoRepository(database.todoDao(), database.segmentedPlanDao())
+        repository = TodoRepository(
+            database.todoDao(),
+            database.segmentedPlanDao(),
+            database.dailyTodoSnapshotDao()
+        )
         startDateTicker()
         startPomodoroTicker()
     }
 
     // Expose filtered items
     val todoItemsState: StateFlow<List<TodoItem>> = combine(
-        repository.allItems,
+        repository.activeItems,
         selectedCategoryFilter,
         searchQuery
     ) { items, filter, query ->
@@ -94,7 +104,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     // Statistics Flow for visual indicators (charts or summaries)
     val taskStatsState: StateFlow<TaskStats> = combine(
-        repository.allItems,
+        repository.activeItems,
         selectedCategoryFilter,
         currentDayKeyState
     ) { items, filter, todayKey ->
@@ -143,6 +153,127 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             started = SharingStarted.WhileSubscribed(5000),
             initialValue = emptyList()
         )
+
+    val dailySnapshotsState: StateFlow<List<DailyTodoSnapshot>> = repository.allSnapshots
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val pendingRolloverState = MutableStateFlow<List<RolloverCandidate>>(emptyList())
+
+    init {
+        prepareDailyRollover()
+    }
+
+    private fun prepareDailyRollover() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val todayKey = DateUtils.todayKey()
+            val todayStart = DateUtils.startOfDayMillis(todayKey)
+            val snapshots = mutableListOf<DailyTodoSnapshot>()
+            val candidates = mutableListOf<RolloverCandidate>()
+
+            repository.getAllItemsOnce().forEach { item ->
+                if (item.archivedAt != null) return@forEach
+
+                if (item.isCompleted) {
+                    val completedAt = item.completedAt ?: item.dueDate ?: item.createdAt
+                    if (completedAt < todayStart) {
+                        snapshots += item.toDailySnapshot(
+                            dayKey = DateUtils.dayKey(completedAt),
+                            wasCompleted = true
+                        )
+                    }
+                } else {
+                    val assignedAt = item.dueDate ?: item.createdAt
+                    if (assignedAt < todayStart) {
+                        val archiveDay = DateUtils.dayKey(assignedAt)
+                        snapshots += item.toDailySnapshot(dayKey = archiveDay, wasCompleted = false)
+                        candidates += RolloverCandidate(item, archiveDay)
+                    }
+                }
+            }
+
+            if (snapshots.isNotEmpty()) repository.insertSnapshots(snapshots)
+
+            val handledKey = sharedPrefs.getString("rollover_handled_day", null)
+            if (handledKey != todayKey && candidates.isNotEmpty()) {
+                pendingRolloverState.value = candidates
+            } else if (candidates.isEmpty()) {
+                sharedPrefs.edit().putString("rollover_handled_day", todayKey).apply()
+            }
+        }
+    }
+
+    fun confirmDailyRollover(selectedTodoIds: Set<Int>) {
+        val candidates = pendingRolloverState.value
+        if (candidates.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val todayKey = DateUtils.todayKey()
+            val todayStart = DateUtils.startOfDayMillis(todayKey)
+            val archivedAt = System.currentTimeMillis()
+            val context = getApplication<Application>()
+
+            candidates.forEach { candidate ->
+                val item = candidate.todo
+                if (item.id in selectedTodoIds) {
+                    repository.markSnapshotCarriedForward(item.id, candidate.archiveDay)
+                    repository.update(item.copy(dueDate = todayStart, archivedAt = null))
+                } else {
+                    repository.update(item.copy(archivedAt = archivedAt))
+                    com.example.utils.AlarmScheduler.cancelAlarm(context, item)
+                }
+            }
+
+            sharedPrefs.edit().putString("rollover_handled_day", todayKey).apply()
+            pendingRolloverState.value = emptyList()
+            TodoAppWidgetProvider.updateAllWidgets(context)
+        }
+    }
+
+    fun restoreSnapshotToToday(snapshot: DailyTodoSnapshot) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getTodoItemById(snapshot.todoId)
+            val todayStart = DateUtils.startOfDayMillis(DateUtils.todayKey())
+            if (existing != null) {
+                repository.update(
+                    existing.copy(
+                        isCompleted = false,
+                        completedAt = null,
+                        dueDate = todayStart,
+                        archivedAt = null
+                    )
+                )
+            } else {
+                repository.insert(
+                    TodoItem(
+                        title = snapshot.title,
+                        description = snapshot.description,
+                        category = snapshot.category,
+                        dueDate = todayStart,
+                        isImportant = snapshot.isImportant
+                    )
+                )
+            }
+            repository.markSnapshotCarriedForward(snapshot.todoId, snapshot.dayKey)
+            TodoAppWidgetProvider.updateAllWidgets(getApplication())
+        }
+    }
+
+    private fun TodoItem.toDailySnapshot(dayKey: String, wasCompleted: Boolean) = DailyTodoSnapshot(
+        todoId = id,
+        dayKey = dayKey,
+        title = title,
+        description = description,
+        category = category,
+        isImportant = isImportant,
+        wasCompleted = wasCompleted,
+        completedAt = completedAt,
+        originalDueDate = dueDate,
+        originalCreatedAt = createdAt
+    )
 
     fun insertSegmentedPlan(title: String, planType: String, targetDate: String) {
         viewModelScope.launch {
@@ -254,6 +385,13 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                 CalendarSyncHelper.updateTodoInCalendar(getApplication(), updated)
             }
             repository.update(updated)
+
+            val todayKey = DateUtils.todayKey()
+            if (willComplete) {
+                repository.upsertSnapshot(updated.toDailySnapshot(todayKey, wasCompleted = true))
+            } else {
+                repository.deleteSnapshot(updated.id, todayKey)
+            }
             
             val context = getApplication<android.app.Application>()
             if (updated.isCompleted) {
@@ -360,8 +498,14 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startDateTicker() {
         viewModelScope.launch {
+            var lastDay = currentDayKeyState.value
             while (true) {
-                currentDayKeyState.value = DateUtils.todayKey()
+                val today = DateUtils.todayKey()
+                currentDayKeyState.value = today
+                if (today != lastDay) {
+                    lastDay = today
+                    prepareDailyRollover()
+                }
                 delay(DateUtils.millisUntilNextDay())
             }
         }
@@ -506,7 +650,13 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // Expose all items flow for weekly report selection
-    val allTodoItems: StateFlow<List<TodoItem>> = repository.allItems.stateIn(
+    val allTodoItems: StateFlow<List<TodoItem>> = repository.activeItems.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    val allTodoRecords: StateFlow<List<TodoItem>> = repository.allItems.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()

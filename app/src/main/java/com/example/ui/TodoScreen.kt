@@ -78,6 +78,7 @@ fun TodoScreen(
     val stats by viewModel.taskStatsState.collectAsStateWithLifecycle()
     val selectedFilter by viewModel.selectedCategoryFilter.collectAsStateWithLifecycle()
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
+    val rolloverCandidates by viewModel.pendingRolloverState.collectAsStateWithLifecycle()
 
     var showAddSheet by remember { mutableStateOf(false) }
     var showAiAssistant by remember { mutableStateOf(false) }
@@ -918,6 +919,13 @@ fun TodoScreen(
 }
 
     // Delete confirmation Dialog
+    if (rolloverCandidates.isNotEmpty()) {
+        DailyRolloverDialog(
+            candidates = rolloverCandidates,
+            onConfirm = viewModel::confirmDailyRollover
+        )
+    }
+
     showDeleteConfirmDialog?.let { item ->
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = null },
@@ -1110,6 +1118,97 @@ fun TodoScreen(
             )
         }
     }
+}
+
+@Composable
+private fun DailyRolloverDialog(
+    candidates: List<RolloverCandidate>,
+    onConfirm: (Set<Int>) -> Unit
+) {
+    var selectedIds by remember(candidates) {
+        mutableStateOf(candidates.mapTo(mutableSetOf()) { it.todo.id })
+    }
+
+    AlertDialog(
+        onDismissRequest = {},
+        icon = { Icon(Icons.Default.History, contentDescription = null) },
+        title = { Text("处理昨日/过期任务") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "昨日记录已保存到历史归档。请选择仍需在今天继续的任务，未选择的任务会以“未完成”状态留在历史中。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("${candidates.size} 项待处理", fontWeight = FontWeight.SemiBold)
+                    TextButton(
+                        onClick = {
+                            selectedIds = if (selectedIds.size == candidates.size) {
+                                mutableSetOf()
+                            } else {
+                                candidates.mapTo(mutableSetOf()) { it.todo.id }
+                            }
+                        }
+                    ) {
+                        Text(if (selectedIds.size == candidates.size) "全部取消" else "全部选择")
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 320.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(candidates, key = { it.todo.id }) { candidate ->
+                        val selected = candidate.todo.id in selectedIds
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    selectedIds = selectedIds.toMutableSet().apply {
+                                        if (selected) remove(candidate.todo.id) else add(candidate.todo.id)
+                                    }
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selected,
+                                onCheckedChange = {
+                                    selectedIds = selectedIds.toMutableSet().apply {
+                                        if (selected) remove(candidate.todo.id) else add(candidate.todo.id)
+                                    }
+                                }
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    candidate.todo.title,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    "${candidate.archiveDay} · ${candidate.todo.category}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = { onConfirm(selectedIds) }) {
+                Text(if (selectedIds.isEmpty()) "仅保存历史" else "继续 ${selectedIds.size} 项")
+            }
+        }
+    )
 }
 
 @Composable

@@ -125,6 +125,25 @@ class TodoAppWidgetProvider : AppWidgetProvider() {
                             }
                             
                             db.todoDao().updateTodoItem(updatedItem)
+                            val todayKey = com.example.utils.DateUtils.todayKey()
+                            if (willComplete) {
+                                db.dailyTodoSnapshotDao().upsertSnapshot(
+                                    com.example.data.DailyTodoSnapshot(
+                                        todoId = updatedItem.id,
+                                        dayKey = todayKey,
+                                        title = updatedItem.title,
+                                        description = updatedItem.description,
+                                        category = updatedItem.category,
+                                        isImportant = updatedItem.isImportant,
+                                        wasCompleted = true,
+                                        completedAt = updatedItem.completedAt,
+                                        originalDueDate = updatedItem.dueDate,
+                                        originalCreatedAt = updatedItem.createdAt
+                                    )
+                                )
+                            } else {
+                                db.dailyTodoSnapshotDao().deleteSnapshot(updatedItem.id, todayKey)
+                            }
                             
                             // Re-broadcast updates to widgets immediately
                             updateAllWidgets(context)

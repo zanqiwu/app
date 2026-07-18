@@ -28,10 +28,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.SegmentedPlan
+import com.example.data.DailyTodoSnapshot
 import com.example.data.TodoItem
 import com.example.utils.DateUtils
 import java.text.SimpleDateFormat
 import java.util.*
+
+private data class HistoryArchiveItem(
+    val title: String,
+    val isCompleted: Boolean,
+    val carriedForward: Boolean = false,
+    val snapshot: DailyTodoSnapshot? = null
+)
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -41,6 +49,7 @@ fun SegmentedPlansScreenContent(
 ) {
     val plans by viewModel.segmentedPlansState.collectAsStateWithLifecycle()
     val todoItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val dailySnapshots by viewModel.dailySnapshotsState.collectAsStateWithLifecycle()
     val currentDayKey by viewModel.currentDayKeyState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(0) } // 0: Current Plans, 1: History Archive
 
@@ -105,9 +114,22 @@ fun SegmentedPlansScreenContent(
     val monthlyPlans = remember(plans, currentMonthStr) {
         plans.filter { it.planType == "MONTHLY" && it.targetDate == currentMonthStr }
     }
-    val historyPlansGrouped = remember(plans, todayStr) {
-        plans.filter { it.planType == "DAILY" && it.targetDate != todayStr }
-            .groupBy { it.targetDate }
+    val historyArchiveGrouped = remember(dailySnapshots, plans, todayStr) {
+        buildList<Pair<String, HistoryArchiveItem>> {
+            dailySnapshots.filter { it.dayKey != todayStr }.forEach { snapshot ->
+                add(
+                    snapshot.dayKey to HistoryArchiveItem(
+                        title = snapshot.title,
+                        isCompleted = snapshot.wasCompleted,
+                        carriedForward = snapshot.carriedForward,
+                        snapshot = snapshot
+                    )
+                )
+            }
+            plans.filter { it.planType == "DAILY" && it.targetDate != todayStr }.forEach { plan ->
+                add(plan.targetDate to HistoryArchiveItem(plan.title, plan.isCompleted))
+            }
+        }.groupBy(keySelector = { it.first }, valueTransform = { it.second })
             .toSortedMap(compareByDescending { it })
     }
 
@@ -194,7 +216,7 @@ fun SegmentedPlansScreenContent(
             }
         } else {
             // History Archive View
-            if (historyPlansGrouped.isEmpty()) {
+            if (historyArchiveGrouped.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -230,11 +252,11 @@ fun SegmentedPlansScreenContent(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     contentPadding = PaddingValues(bottom = 80.dp)
                 ) {
-                    historyPlansGrouped.forEach { (date, plansList) ->
+                    historyArchiveGrouped.forEach { (date, archiveItems) ->
                         item(key = date) {
                             var isExpanded by remember { mutableStateOf(false) }
-                            val completedCount = plansList.count { it.isCompleted }
-                            val totalCount = plansList.size
+                            val completedCount = archiveItems.count { it.isCompleted }
+                            val totalCount = archiveItems.size
                             val completionRate = if (totalCount > 0) (completedCount * 100) / totalCount else 0
 
                             Card(
@@ -265,7 +287,7 @@ fun SegmentedPlansScreenContent(
                                             )
                                             Column {
                                                 Text(
-                                                    text = formatDateFriendly(date),
+                                                    text = formatArchiveDate(date),
                                                     fontWeight = FontWeight.SemiBold,
                                                     fontSize = 15.sp,
                                                     color = MaterialTheme.colorScheme.onSurface
@@ -294,7 +316,7 @@ fun SegmentedPlansScreenContent(
                                             verticalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
-                                            plansList.forEach { plan ->
+                                            archiveItems.forEach { archiveItem ->
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     verticalAlignment = Alignment.CenterVertically,
@@ -306,31 +328,47 @@ fun SegmentedPlansScreenContent(
                                                         modifier = Modifier.weight(1f)
                                                     ) {
                                                         Icon(
-                                                            imageVector = if (plan.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                                                            tint = if (plan.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                            imageVector = if (archiveItem.isCompleted) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                                                            tint = if (archiveItem.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                                             modifier = Modifier.size(16.dp),
                                                             contentDescription = null
                                                         )
-                                                        Text(
-                                                            text = plan.title,
-                                                            fontSize = 13.sp,
-                                                            textDecoration = if (plan.isCompleted) TextDecoration.LineThrough else null,
-                                                            color = if (plan.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
-                                                            maxLines = 2,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = archiveItem.title,
+                                                                fontSize = 13.sp,
+                                                                textDecoration = if (archiveItem.isCompleted) TextDecoration.LineThrough else null,
+                                                                color = if (archiveItem.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface,
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                            Text(
+                                                                text = when {
+                                                                    archiveItem.isCompleted -> "已完成"
+                                                                    archiveItem.carriedForward -> "未完成 · 已续至今日"
+                                                                    else -> "未完成 · 已归档"
+                                                                },
+                                                                fontSize = 10.sp,
+                                                                color = if (archiveItem.isCompleted) {
+                                                                    MaterialTheme.colorScheme.primary
+                                                                } else {
+                                                                    MaterialTheme.colorScheme.error
+                                                                }
+                                                            )
+                                                        }
                                                     }
 
                                                     // One-click restore to today button
                                                     IconButton(
                                                         onClick = {
-                                                            viewModel.insertSegmentedPlan(plan.title, "DAILY", todayStr)
+                                                            archiveItem.snapshot?.let(viewModel::restoreSnapshotToToday)
+                                                                ?: viewModel.insertTodayPlanTodo(archiveItem.title)
                                                         },
                                                         modifier = Modifier.size(24.dp)
                                                     ) {
                                                         Icon(
                                                             imageVector = Icons.Default.ContentCopy,
-                                                            contentDescription = "复制到今日",
+                                                            contentDescription = "恢复到今日",
                                                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                                                             modifier = Modifier.size(14.dp)
                                                         )
@@ -853,6 +891,16 @@ fun PlanSectionCard(
                 }
             }
         }
+    }
+}
+
+private fun formatArchiveDate(dateStr: String): String {
+    return try {
+        val parser = SimpleDateFormat("yyyy-MM-dd", Locale.CHINA)
+        val date = parser.parse(dateStr) ?: return dateStr
+        SimpleDateFormat("yyyy年M月d日 · E", Locale.CHINA).format(date)
+    } catch (_: Exception) {
+        dateStr
     }
 }
 

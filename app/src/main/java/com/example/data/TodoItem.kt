@@ -21,5 +21,6 @@ data class TodoItem(
     val imageUrl: String? = null,
     val alarmTime: Long? = null,
     val hasAlarm: Boolean = false,
-    val sortOrder: Long = -System.currentTimeMillis()
+    val sortOrder: Long = -System.currentTimeMillis(),
+    val archivedAt: Long? = null
 )

@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.DailyTodoSnapshot
 import com.example.data.TodoItem
 import com.example.utils.DateUtils
 import com.example.utils.PomodoroStore
@@ -48,7 +49,8 @@ fun AnalysisScreenContent(
     viewModel: TodoViewModel,
     modifier: Modifier = Modifier
 ) {
-    val todoItems by viewModel.allTodoItems.collectAsStateWithLifecycle()
+    val todoItems by viewModel.allTodoRecords.collectAsStateWithLifecycle()
+    val dailySnapshots by viewModel.dailySnapshotsState.collectAsStateWithLifecycle()
     val currentDayKey by viewModel.currentDayKeyState.collectAsStateWithLifecycle()
     val pomodoroRunning by viewModel.pomodoroRunningState.collectAsStateWithLifecycle()
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -58,11 +60,12 @@ fun AnalysisScreenContent(
     val snapshot by produceState(
         initialValue = AnalysisSnapshot(),
         todoItems,
+        dailySnapshots,
         currentDayKey,
         pomodoroRunning
     ) {
         value = withContext(Dispatchers.Default) {
-            buildAnalysisSnapshot(context, todoItems, currentDayKey)
+            buildAnalysisSnapshot(context, todoItems, dailySnapshots, currentDayKey)
         }
     }
     val totalTasks = snapshot.totalTasks
@@ -704,9 +707,18 @@ private fun formatFocusBarValue(seconds: Int, useHours: Boolean): String {
 private fun buildAnalysisSnapshot(
     context: android.content.Context,
     todoItems: List<TodoItem>,
+    dailySnapshots: List<DailyTodoSnapshot>,
     currentDayKey: String
 ): AnalysisSnapshot {
     val completedItems = todoItems.filter(TodoItem::isCompleted)
+    val completedIds = buildSet {
+        addAll(completedItems.map { it.id })
+        addAll(dailySnapshots.filter { it.wasCompleted }.map { it.todoId })
+    }
+    val totalIds = buildSet {
+        addAll(todoItems.map { it.id })
+        addAll(dailySnapshots.map { it.todoId })
+    }
     val baseMillis = DateUtils.startOfDayMillis(currentDayKey)
     val baseCalendar = Calendar.getInstance().apply { timeInMillis = baseMillis }
     val dayLabel = SimpleDateFormat("E", Locale.CHINA)
@@ -718,10 +730,15 @@ private fun buildAnalysisSnapshot(
         val end = (day.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }.timeInMillis
         BarData(
             label = dayLabel.format(day.time),
-            value = completedItems.count { item ->
-                val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
-                timestamp in start until end
-            }
+            value = buildSet {
+                completedItems.filterTo(mutableListOf()) { item ->
+                    val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
+                    timestamp in start until end
+                }.forEach { add(it.id) }
+                dailySnapshots.filter { snapshot ->
+                    snapshot.wasCompleted && DateUtils.startOfDayMillis(snapshot.dayKey) in start until end
+                }.forEach { add(it.todoId) }
+            }.size
         )
     }
 
@@ -738,10 +755,15 @@ private fun buildAnalysisSnapshot(
         val end = (month.clone() as Calendar).apply { add(Calendar.MONTH, 1) }.timeInMillis
         BarData(
             label = monthLabel.format(month.time),
-            value = completedItems.count { item ->
-                val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
-                timestamp in start until end
-            }
+            value = buildSet {
+                completedItems.filterTo(mutableListOf()) { item ->
+                    val timestamp = item.completedAt ?: item.dueDate ?: item.createdAt
+                    timestamp in start until end
+                }.forEach { add(it.id) }
+                dailySnapshots.filter { snapshot ->
+                    snapshot.wasCompleted && DateUtils.startOfDayMillis(snapshot.dayKey) in start until end
+                }.forEach { add(it.todoId) }
+            }.size
         )
     }
 
@@ -770,8 +792,8 @@ private fun buildAnalysisSnapshot(
     }
 
     return AnalysisSnapshot(
-        totalTasks = todoItems.size,
-        completedCount = completedItems.size,
+        totalTasks = totalIds.size,
+        completedCount = completedIds.size,
         last7DaysData = last7Days,
         last6MonthsData = last6Months,
         todayFocusSeconds = PomodoroStore.focusSecondsForDay(context, currentDayKey),

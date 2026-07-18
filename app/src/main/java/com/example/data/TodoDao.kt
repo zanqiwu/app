@@ -13,11 +13,17 @@ interface TodoDao {
     @Query("SELECT * FROM todo_items ORDER BY sortOrder ASC, createdAt DESC")
     fun getAllTodoItems(): Flow<List<TodoItem>>
 
+    @Query("SELECT * FROM todo_items WHERE archivedAt IS NULL ORDER BY sortOrder ASC, createdAt DESC")
+    fun getActiveTodoItems(): Flow<List<TodoItem>>
+
     @Query("SELECT * FROM todo_items ORDER BY sortOrder ASC, createdAt DESC")
     fun getAllTodoItemsSync(): List<TodoItem>
 
     @Query("SELECT * FROM todo_items WHERE id = :id")
     suspend fun getTodoItemById(id: Int): TodoItem?
+
+    @Query("SELECT * FROM todo_items")
+    suspend fun getAllTodoItemsOnce(): List<TodoItem>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTodoItem(item: TodoItem): Long

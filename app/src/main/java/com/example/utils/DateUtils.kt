@@ -9,22 +9,24 @@ import kotlin.math.max
 object DateUtils {
     private val dayFormatter = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
 
-    fun todayKey(): String = dayFormatter.format(Date())
+    fun todayKey(): String = dayKey(System.currentTimeMillis())
 
     fun yesterdayKey(): String {
         val cal = Calendar.getInstance()
         cal.add(Calendar.DAY_OF_YEAR, -1)
-        return dayFormatter.format(cal.time)
+        return dayKey(cal.timeInMillis)
     }
 
-    fun dayKey(millis: Long): String = dayFormatter.format(Date(millis))
+    fun dayKey(millis: Long): String = synchronized(dayFormatter) {
+        dayFormatter.format(Date(millis))
+    }
 
     fun isSameDay(millis: Long?, key: String): Boolean {
         return millis != null && dayKey(millis) == key
     }
 
     fun startOfDayMillis(key: String): Long {
-        val parsed = dayFormatter.parse(key) ?: Date()
+        val parsed = synchronized(dayFormatter) { dayFormatter.parse(key) } ?: Date()
         return Calendar.getInstance().apply {
             time = parsed
             set(Calendar.HOUR_OF_DAY, 0)
