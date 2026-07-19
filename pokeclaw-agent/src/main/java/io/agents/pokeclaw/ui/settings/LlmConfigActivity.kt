@@ -218,7 +218,14 @@ private fun CloudModelSettings(
                     onValueChange = { baseUrl = it },
                     label = { Text("请求地址 / 中转 URL") },
                     supportingText = {
-                        Text(if (provider == CloudProvider.ANTHROPIC) "Claude 中转请选择 Anthropic 协议" else "兼容 OpenAI Responses/Chat Completions 的中转可直接填写")
+                        Text(
+                            when (provider) {
+                                CloudProvider.ANTHROPIC,
+                                CloudProvider.XIAOMI_MIMO_ANTHROPIC -> "使用 Anthropic Messages 协议，支持流式响应与 usage 汇总；Agent 多轮任务推荐此协议"
+                                CloudProvider.XIAOMI_MIMO_OPENAI -> "使用 OpenAI Chat Completions 协议，支持 SSE 流式响应与 usage"
+                                else -> "兼容 OpenAI Chat Completions 的中转可直接填写"
+                            }
+                        )
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,

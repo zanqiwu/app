@@ -19,6 +19,7 @@ import io.agents.pokeclaw.TaskEvent
 import io.agents.pokeclaw.agent.DirectDeviceDataGuard
 import io.agents.pokeclaw.agent.PipelineRouter
 import io.agents.pokeclaw.agent.TaskPromptEnvelope
+import io.agents.pokeclaw.agent.TokenMonitor
 import io.agents.pokeclaw.agent.llm.ModelConfigRepository
 import io.agents.pokeclaw.service.ClawAccessibilityService
 import io.agents.pokeclaw.service.ForegroundService
@@ -34,6 +35,8 @@ data class TaskFlowUiState(
     val modelStatus: MutableState<String>,
     val isAwaitingReply: MutableState<Boolean>,
     val isTaskRunning: MutableState<Boolean>,
+    val sessionTokens: MutableState<Int>,
+    val sessionCost: MutableState<Double>,
 )
 
 /**
@@ -55,10 +58,15 @@ class TaskFlowController(
 
     companion object {
         private const val TAG = "TaskFlowController"
+        private const val MAX_STREAM_TEXT_CHARS = 50_000
+        private const val STREAM_UI_UPDATE_INTERVAL_MS = 50L
     }
 
     private var sendTaskRetryCount = 0
     private var lastMonitorStatusNote: String? = null
+    private val streamedTaskText = StringBuilder()
+    private var lastStreamUiUpdateAt = 0L
+    private var latestTokenStatus: TokenMonitor.Status? = null
     private val pipelineRouter = PipelineRouter(activity)
 
     fun sendTask(text: String) {
@@ -172,6 +180,9 @@ class TaskFlowController(
         addUser(text)
         uiState.isAwaitingReply.value = true
         uiState.isTaskRunning.value = false
+        streamedTaskText.clear()
+        lastStreamUiUpdateAt = 0L
+        latestTokenStatus = null
         XLog.i(TAG, "sendTask: isProcessing=TRUE")
         uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, "..."))
 
@@ -285,7 +296,20 @@ class TaskFlowController(
         try {
             when (event) {
                 is TaskEvent.Completed -> {
-                    replaceTypingIndicator(event.answer, event.modelName)
+                    val usage = latestTokenStatus
+                        ?.takeIf { it.hasServerUsage }
+                        ?.let {
+                            TokenUsageSummary(
+                                inputTokens = it.inputTokens,
+                                outputTokens = it.outputTokens,
+                                totalTokens = it.totalTokens,
+                            )
+                        }
+                    replaceTypingIndicator(appendTokenUsage(event.answer, usage), event.modelName)
+                    if (usage != null) {
+                        uiState.sessionTokens.value += usage.totalTokens
+                        uiState.sessionCost.value += latestTokenStatus?.estimatedCostUsd ?: 0.0
+                    }
                     onTaskTerminal?.invoke(event)
                     cleanupAfterTask()
                     checkAutoReplyConfirmation()
@@ -308,15 +332,10 @@ class TaskFlowController(
                 is TaskEvent.ToolAction -> {
                     uiState.isAwaitingReply.value = false
                     uiState.isTaskRunning.value = true
-                    if (!event.toolName.contains("Finish", ignoreCase = true)) {
-                        removeTypingIndicator()
-                        addSystem("${event.toolName}...")
-                    }
                 }
                 is TaskEvent.ToolResult -> {
                     uiState.isAwaitingReply.value = false
                     uiState.isTaskRunning.value = true
-                    if (!event.success) addSystem("${event.toolName} failed")
                 }
                 is TaskEvent.Response -> {
                     uiState.isAwaitingReply.value = false
@@ -325,20 +344,38 @@ class TaskFlowController(
                 is TaskEvent.Progress -> {
                     uiState.isAwaitingReply.value = false
                     uiState.isTaskRunning.value = true
-                    addSystem(event.description)
                 }
                 is TaskEvent.LoopStart -> {
                     uiState.isAwaitingReply.value = false
                     uiState.isTaskRunning.value = true
                 }
-                is TaskEvent.TokenUpdate, is TaskEvent.Thinking -> Unit
+                is TaskEvent.Thinking -> {
+                    if (!KVUtils.isStreamingEnabled() || event.content.isEmpty()) return
+                    if (streamedTaskText.length < MAX_STREAM_TEXT_CHARS) {
+                        streamedTaskText.append(
+                            event.content.take(MAX_STREAM_TEXT_CHARS - streamedTaskText.length)
+                        )
+                    }
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastStreamUiUpdateAt >= STREAM_UI_UPDATE_INTERVAL_MS) {
+                        lastStreamUiUpdateAt = now
+                        replaceTypingIndicator(streamedTaskText.toString(), persist = false)
+                    }
+                }
+                is TaskEvent.TokenUpdate -> {
+                    latestTokenStatus = event.tokenStatus
+                }
             }
         } catch (e: Exception) {
             XLog.w(TAG, "handleTaskEvent error", e)
         }
     }
 
-    private fun replaceTypingIndicator(text: String, actualModelName: String? = null) {
+    private fun replaceTypingIndicator(
+        text: String,
+        actualModelName: String? = null,
+        persist: Boolean = true,
+    ) {
         val modelTag = actualModelName
             ?: uiState.modelStatus.value.removePrefix("● ").split(" ·").firstOrNull()?.trim()
             ?: ""
@@ -348,7 +385,7 @@ class TaskFlowController(
         } else {
             uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, text, modelName = modelTag))
         }
-        onPersistConversation()
+        if (persist) onPersistConversation()
     }
 
     private fun removeTypingIndicator() {

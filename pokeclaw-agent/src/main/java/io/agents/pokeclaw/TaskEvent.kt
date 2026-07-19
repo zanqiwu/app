@@ -33,7 +33,8 @@ sealed class TaskEvent {
         val step: Int,
         val formattedTokens: String,
         val formattedCost: String,
-        val tokenState: io.agents.pokeclaw.agent.TokenMonitor.State
+        val tokenState: io.agents.pokeclaw.agent.TokenMonitor.State,
+        val tokenStatus: io.agents.pokeclaw.agent.TokenMonitor.Status,
     ) : TaskEvent()
 
     /** Task completed successfully with an answer/summary. */

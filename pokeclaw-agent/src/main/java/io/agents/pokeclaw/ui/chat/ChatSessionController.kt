@@ -162,15 +162,34 @@ class ChatSessionController(
                     .ifBlank { "（模型没有返回文本）" }
                 cloudHistory.add(AiMessage.from(responseText))
                 val usage = response.tokenUsage
-                val inputTokens = usage?.inputTokenCount() ?: (text.length / 4 + 1)
-                val outputTokens = usage?.outputTokenCount() ?: (responseText.length / 4 + 1)
+                val usageSummary = usage?.let {
+                    val inputTokens = it.inputTokenCount()
+                    val outputTokens = it.outputTokenCount()
+                    val totalTokens = it.totalTokenCount()
+                    if (inputTokens == null && outputTokens == null && totalTokens == null) {
+                        null
+                    } else {
+                        TokenUsageSummary(
+                            inputTokens = inputTokens ?: 0,
+                            outputTokens = outputTokens ?: 0,
+                            totalTokens = totalTokens ?: ((inputTokens ?: 0) + (outputTokens ?: 0)),
+                        )
+                    }
+                }
+                val displayText = appendTokenUsage(responseText, usageSummary)
                 val fallbackModel = cloudModelName ?: ModelConfigRepository.snapshot().activeCloud.modelName
                 val modelTag = response.modelName ?: fallbackModel
                 postToMain {
-                    replaceTypingIndicator(responseText, modelTag)
+                    replaceTypingIndicator(displayText, modelTag)
                     uiState.isAwaitingReply.value = false
-                    uiState.sessionTokens.value += inputTokens + outputTokens
-                    uiState.sessionCost.value += ModelPricing.estimateCost(modelTag, inputTokens, outputTokens)
+                    if (usageSummary != null) {
+                        uiState.sessionTokens.value += usageSummary.totalTokens
+                        uiState.sessionCost.value += ModelPricing.estimateCost(
+                            modelTag,
+                            usageSummary.inputTokens,
+                            usageSummary.outputTokens,
+                        )
+                    }
                     onPersistConversation()
                     onReplyCompleted()
                 }

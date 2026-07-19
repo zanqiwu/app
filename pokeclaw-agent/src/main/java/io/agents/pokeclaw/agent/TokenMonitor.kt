@@ -15,6 +15,7 @@ class TokenMonitor(private val modelName: String) {
     private var totalOutputTokens: Int = 0
     private var totalTokens: Int = 0
     private var currentStep: Int = 0
+    private var hasServerUsage: Boolean = false
 
     enum class State {
         NORMAL,     // 0-30K tokens
@@ -31,7 +32,8 @@ class TokenMonitor(private val modelName: String) {
         val estimatedCostUsd: Double,
         val state: State,
         val formattedTokens: String,
-        val formattedCost: String
+        val formattedCost: String,
+        val hasServerUsage: Boolean
     )
 
     /**
@@ -40,6 +42,7 @@ class TokenMonitor(private val modelName: String) {
      */
     fun record(step: Int, inputTokens: Int?, outputTokens: Int?, totalTokenCount: Int?) {
         currentStep = step
+        hasServerUsage = hasServerUsage || inputTokens != null || outputTokens != null || totalTokenCount != null
         if (inputTokens != null) totalInputTokens += inputTokens
         if (outputTokens != null) totalOutputTokens += outputTokens
         if (totalTokenCount != null) {
@@ -71,7 +74,8 @@ class TokenMonitor(private val modelName: String) {
             estimatedCostUsd = cost,
             state = state,
             formattedTokens = ModelPricing.formatTokens(totalTokens),
-            formattedCost = ModelPricing.formatCost(cost)
+            formattedCost = ModelPricing.formatCost(cost),
+            hasServerUsage = hasServerUsage
         )
     }
 
@@ -80,6 +84,7 @@ class TokenMonitor(private val modelName: String) {
         totalOutputTokens = 0
         totalTokens = 0
         currentStep = 0
+        hasServerUsage = false
     }
 
     companion object {

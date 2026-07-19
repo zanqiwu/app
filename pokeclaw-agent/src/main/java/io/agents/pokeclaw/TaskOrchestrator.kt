@@ -280,7 +280,8 @@ class TaskOrchestrator(
                     step = status.step,
                     formattedTokens = status.formattedTokens,
                     formattedCost = status.formattedCost,
-                    tokenState = status.state
+                    tokenState = status.state,
+                    tokenStatus = status,
                 ))
             }
 

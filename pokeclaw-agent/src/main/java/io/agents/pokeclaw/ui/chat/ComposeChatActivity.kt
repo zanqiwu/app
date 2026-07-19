@@ -100,6 +100,8 @@ class ComposeChatActivity : ComponentActivity() {
                 modelStatus = _modelStatus,
                 isAwaitingReply = _isAwaitingReply,
                 isTaskRunning = _isTaskRunning,
+                sessionTokens = _sessionTokens,
+                sessionCost = _sessionCost,
             ),
             onPersistConversation = {
                 saveChat()

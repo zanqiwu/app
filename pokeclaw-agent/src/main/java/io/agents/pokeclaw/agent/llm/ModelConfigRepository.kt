@@ -33,7 +33,8 @@ data class CloudModelConfig(
     val isConfigured: Boolean get() = modelName.isNotBlank() && apiKey.isNotBlank()
     val agentProvider: LlmProvider
         get() = when (provider) {
-            CloudProvider.ANTHROPIC -> LlmProvider.ANTHROPIC
+            CloudProvider.ANTHROPIC,
+            CloudProvider.XIAOMI_MIMO_ANTHROPIC -> LlmProvider.ANTHROPIC
             else -> LlmProvider.OPENAI
         }
 }

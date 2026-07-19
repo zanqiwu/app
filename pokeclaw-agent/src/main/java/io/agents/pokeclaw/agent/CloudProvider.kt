@@ -70,6 +70,18 @@ enum class CloudProvider(
             CloudModel("deepseek-reasoner", "DeepSeek Reasoner", 0.55, 2.19, ModelTier.PRO, 64_000),
         )
     ),
+    XIAOMI_MIMO_OPENAI(
+        displayName = "MiMo (OpenAI)",
+        defaultBaseUrl = "https://api.xiaomimimo.com/v1",
+        showBaseUrl = true,
+        models = emptyList()
+    ),
+    XIAOMI_MIMO_ANTHROPIC(
+        displayName = "MiMo (Anthropic)",
+        defaultBaseUrl = "https://api.xiaomimimo.com/anthropic",
+        showBaseUrl = true,
+        models = emptyList()
+    ),
     CUSTOM(
         displayName = "自定义中转",
         defaultBaseUrl = "",

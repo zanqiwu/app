@@ -35,6 +35,9 @@ class OpenAiLlmClient(
         if (config.baseUrl.isNotEmpty()) {
             builder.baseUrl(config.baseUrl)
         }
+        if (config.baseUrl.contains("xiaomimimo.com", ignoreCase = true)) {
+            builder.customHeaders(mapOf("api-key" to config.apiKey))
+        }
         return builder.build()
     }
 
@@ -46,6 +49,9 @@ class OpenAiLlmClient(
             .temperature(config.temperature)
         if (config.baseUrl.isNotEmpty()) {
             builder.baseUrl(config.baseUrl)
+        }
+        if (config.baseUrl.contains("xiaomimimo.com", ignoreCase = true)) {
+            builder.customHeaders(mapOf("api-key" to config.apiKey))
         }
         return builder.build()
     }
