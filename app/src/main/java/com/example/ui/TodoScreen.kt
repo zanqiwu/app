@@ -169,7 +169,6 @@ fun TodoScreen(
                             // Title and list options
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
@@ -179,7 +178,7 @@ fun TodoScreen(
                                     ) {
                                         IconButton(
                                             onClick = { scope.launch { drawerState.open() } },
-                                            modifier = Modifier.size(28.dp)
+                                            modifier = Modifier.size(40.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.Menu,
@@ -193,84 +192,7 @@ fun TodoScreen(
                                             fontWeight = FontWeight.Bold,
                                             color = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
                                         )
-                                        Row(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(
-                                                    brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                                        colors = listOf(
-                                                            MaterialTheme.colorScheme.primary,
-                                                            MaterialTheme.colorScheme.tertiary
-                                                        )
-                                                    )
-                                                )
-                                                .clickable { showAiAssistant = true }
-                                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.AutoAwesome,
-                                                contentDescription = "AI 助理",
-                                                tint = Color.White,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Text(
-                                                text = "AI 规划",
-                                                color = Color.White,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
-                                        // 地图模式 Toggle Button
-                                        Row(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(
-                                                    if (isMapMode) MaterialTheme.colorScheme.primaryContainer
-                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                                )
-                                                .clickable { isMapMode = !isMapMode }
-                                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isMapMode) Icons.Default.List else Icons.Default.Map,
-                                                contentDescription = "地图模式",
-                                                tint = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Text(
-                                                text = if (isMapMode) "列表" else "地图",
-                                                color = if (isMapMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
-
                                     }
-                                    Text(
-                                        text = remember {
-                                            val cal = Calendar.getInstance()
-                                            val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
-                                                Calendar.SUNDAY -> "星期日"
-                                                Calendar.MONDAY -> "星期一"
-                                                Calendar.TUESDAY -> "星期二"
-                                                Calendar.WEDNESDAY -> "星期三"
-                                                Calendar.THURSDAY -> "星期四"
-                                                Calendar.FRIDAY -> "星期五"
-                                                Calendar.SATURDAY -> "星期六"
-                                                else -> ""
-                                            }
-                                            val sdf = SimpleDateFormat("M月d日", Locale.getDefault())
-                                            "${sdf.format(cal.time)} · $dayOfWeek"
-                                        },
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = if (backgroundBrush != null) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(start = 38.dp)
-                                    )
                                 }
 
                                 Box {
@@ -318,6 +240,102 @@ fun TodoScreen(
                                                 }
                                             )
                                         }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 48.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = remember {
+                                        val cal = Calendar.getInstance()
+                                        val dayOfWeek = when (cal.get(Calendar.DAY_OF_WEEK)) {
+                                            Calendar.SUNDAY -> "星期日"
+                                            Calendar.MONDAY -> "星期一"
+                                            Calendar.TUESDAY -> "星期二"
+                                            Calendar.WEDNESDAY -> "星期三"
+                                            Calendar.THURSDAY -> "星期四"
+                                            Calendar.FRIDAY -> "星期五"
+                                            Calendar.SATURDAY -> "星期六"
+                                            else -> ""
+                                        }
+                                        val sdf = SimpleDateFormat("M月d日", Locale.getDefault())
+                                        "${sdf.format(cal.time)} · $dayOfWeek"
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (backgroundBrush != null) Color.White.copy(alpha = 0.7f)
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
+                                Spacer(modifier = Modifier.weight(1f))
+                                Row(
+                                    modifier = Modifier
+                                        .height(40.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    MaterialTheme.colorScheme.primary,
+                                                    MaterialTheme.colorScheme.tertiary
+                                                )
+                                            )
+                                        )
+                                        .clickable { showAiAssistant = true }
+                                        .padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "AI 规划",
+                                        color = Color.White,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Surface(
+                                    onClick = { isMapMode = !isMapMode },
+                                    modifier = Modifier
+                                        .width(72.dp)
+                                        .height(40.dp),
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isMapMode) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isMapMode) Icons.Default.List else Icons.Default.Map,
+                                            contentDescription = null,
+                                            tint = if (isMapMode) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(5.dp))
+                                        Text(
+                                            text = if (isMapMode) "列表" else "地图",
+                                            color = if (isMapMode) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1
+                                        )
                                     }
                                 }
                             }
