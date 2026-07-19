@@ -55,6 +55,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.TodoItem
 import com.example.utils.PomodoroNotifier
+import com.example.utils.PomodoroStore
 import com.example.utils.XiaomiSuperIsland
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
@@ -3210,6 +3211,9 @@ fun ExtensionsScreenContent(
     var notificationChannelEnabled by remember {
         mutableStateOf(PomodoroNotifier.isRunningChannelEnabled(context))
     }
+    var finishAlarmEnabled by remember {
+        mutableStateOf(PomodoroStore.isFinishAlarmEnabled(context))
+    }
     var os3IslandSupported by remember { mutableStateOf(false) }
     var os3FocusPermission by remember { mutableStateOf(false) }
     val refreshXiaomiStatus = {
@@ -3305,7 +3309,7 @@ fun ExtensionsScreenContent(
                         )
                     }
                     Text(
-                        text = "锁屏通知会显示剩余时间；结束时会响铃或震动提醒。",
+                            text = "锁屏通知会显示剩余时间；完成通知始终保留，结束响铃可单独选择。",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
@@ -3324,6 +3328,58 @@ fun ExtensionsScreenContent(
                         )
                         TextButton(onClick = { PomodoroNotifier.openRunningChannelSettings(context) }) {
                             Text("通知设置", fontSize = 11.sp)
+                        }
+                    }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "结束响铃",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "关闭后只显示完成通知，不播放闹钟和震动",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = finishAlarmEnabled,
+                            onCheckedChange = { enabled ->
+                                finishAlarmEnabled = enabled
+                                PomodoroStore.setFinishAlarmEnabled(context, enabled)
+                                if (!enabled) {
+                                    PomodoroNotifier.stopFinishFeedback(context)
+                                }
+                            }
+                        )
+                    }
+                    if (finishAlarmEnabled) {
+                        val feedbackActive = PomodoroNotifier.isFinishFeedbackActive()
+                        OutlinedButton(
+                            onClick = {
+                                PomodoroNotifier.stopFinishFeedback(context)
+                            },
+                            enabled = feedbackActive,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.VolumeOff,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(if (feedbackActive) "停止当前响铃" else "当前没有响铃", fontSize = 12.sp)
                         }
                     }
                     if (os3IslandSupported) {

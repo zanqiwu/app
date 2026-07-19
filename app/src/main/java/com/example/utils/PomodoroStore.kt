@@ -21,6 +21,18 @@ object PomodoroStore {
     private const val KEY_END_AT_MILLIS = "end_at_millis"
     private const val KEY_LAST_RECORDED_END_AT_MILLIS = "last_recorded_end_at_millis"
     private const val KEY_FOCUS_SECONDS_PREFIX = "focus_seconds_"
+    private const val KEY_FINISH_ALARM_ENABLED = "finish_alarm_enabled"
+
+    fun isFinishAlarmEnabled(context: Context): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(KEY_FINISH_ALARM_ENABLED, false)
+
+    fun setFinishAlarmEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_FINISH_ALARM_ENABLED, enabled)
+            .apply()
+    }
 
     fun load(context: Context): PomodoroState {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)

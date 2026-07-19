@@ -9,7 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.provider.Settings
-import android.media.AudioAttributes
+import android.media.Ringtone
 import android.media.RingtoneManager
 import android.os.Build
 import android.os.VibrationEffect
@@ -27,10 +27,14 @@ object PomodoroNotifier {
     // A new id is intentional: Android does not let an app restore the importance
     // or lock-screen visibility of an existing channel after it was downgraded.
     const val RUNNING_CHANNEL_ID = "pomodoro_running_channel_v4"
-    private const val FINISHED_CHANNEL_ID = "pomodoro_finished_channel"
+    // Use a new silent channel because Android channel sound cannot be changed after creation.
+    private const val FINISHED_CHANNEL_ID = "pomodoro_finished_silent_v2"
     const val RUNNING_NOTIFICATION_ID = 2601
     private const val FINISHED_NOTIFICATION_ID = 2602
     private const val FINISH_REQUEST_CODE = 2603
+    private const val STOP_FEEDBACK_REQUEST_CODE = 2604
+    private var finishRingtone: Ringtone? = null
+    @Volatile private var finishFeedbackActive = false
 
     fun hasNotificationPermission(context: Context): Boolean {
         val runtimeGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
@@ -65,18 +69,21 @@ object PomodoroNotifier {
     }
 
     fun onTimerStarted(context: Context, state: PomodoroState) {
+        stopFinishFeedback(context, dismissNotification = true)
         ensureChannels(context)
         PomodoroForegroundService.start(context)
         scheduleFinishAlarm(context, state.endAtMillis)
     }
 
     fun onTimerPaused(context: Context) {
+        stopFinishFeedback(context, dismissNotification = false)
         cancelFinishAlarm(context)
         PomodoroForegroundService.stop(context)
         cancelRunningNotification(context)
     }
 
     fun onTimerReset(context: Context) {
+        stopFinishFeedback(context, dismissNotification = true)
         cancelFinishAlarm(context)
         PomodoroForegroundService.stop(context)
         cancelRunningNotification(context)
@@ -88,8 +95,9 @@ object PomodoroNotifier {
         cancelFinishAlarm(context)
         PomodoroForegroundService.stop(context)
         cancelRunningNotification(context)
-        playFinishFeedback(context)
-        showFinishedNotification(context)
+        val alarmEnabled = PomodoroStore.isFinishAlarmEnabled(context)
+        if (alarmEnabled) playFinishFeedback(context)
+        showFinishedNotification(context, alarmEnabled)
     }
 
     fun buildRunningNotification(context: Context, state: PomodoroState): android.app.Notification {
@@ -186,23 +194,30 @@ object PomodoroNotifier {
         }
     }
 
-    private fun showFinishedNotification(context: Context) {
+    private fun showFinishedNotification(context: Context, alarmEnabled: Boolean) {
         if (!hasNotificationPermission(context)) return
 
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val notification = NotificationCompat.Builder(context, FINISHED_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, FINISHED_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
             .setContentTitle("番茄钟完成")
-            .setContentText("一次专注结束了，休息一下再继续。")
+            .setContentText(
+                if (alarmEnabled) "一次专注结束了。正在响铃，可点击停止。"
+                else "一次专注结束了，休息一下再继续。"
+            )
             .setContentIntent(mainActivityIntent(context))
             .setAutoCancel(true)
-            .setSound(soundUri)
-            .setVibrate(longArrayOf(0, 500, 180, 500, 180, 700))
+            .setSilent(true)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .build()
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+        if (alarmEnabled) {
+            builder.addAction(
+                android.R.drawable.ic_media_pause,
+                "停止响铃",
+                stopFeedbackPendingIntent(context)
+            )
+        }
+        val notification = builder.build()
 
         try {
             NotificationManagerCompat.from(context).notify(FINISHED_NOTIFICATION_ID, notification)
@@ -257,12 +272,26 @@ object PomodoroNotifier {
     }
 
     private fun finishPendingIntent(context: Context, flag: Int): PendingIntent? {
-        val intent = Intent(context, PomodoroFinishedReceiver::class.java)
+        val intent = Intent(context, PomodoroFinishedReceiver::class.java).apply {
+            action = PomodoroFinishedReceiver.ACTION_FINISHED
+        }
         return PendingIntent.getBroadcast(
             context,
             FINISH_REQUEST_CODE,
             intent,
             flag or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun stopFeedbackPendingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, PomodoroFinishedReceiver::class.java).apply {
+            action = PomodoroFinishedReceiver.ACTION_STOP_FEEDBACK
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            STOP_FEEDBACK_REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }
 
@@ -295,33 +324,28 @@ object PomodoroNotifier {
         }
         notificationManager.createNotificationChannel(runningChannel)
 
-        val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_ALARM)
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .build()
         val finishedChannel = NotificationChannel(
             FINISHED_CHANNEL_ID,
             "番茄钟完成提醒",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "番茄钟结束时响铃和震动"
-            setSound(soundUri, audioAttributes)
-            enableVibration(true)
-            vibrationPattern = longArrayOf(0, 500, 180, 500, 180, 700)
+            description = "番茄钟结束时显示通知；是否响铃由应用内设置控制"
+            setSound(null, null)
+            enableVibration(false)
         }
         notificationManager.createNotificationChannel(finishedChannel)
     }
 
     @Suppress("DEPRECATION")
     private fun playFinishFeedback(context: Context) {
+        stopFinishFeedback(context, dismissNotification = false)
+        finishFeedbackActive = true
         try {
             val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
                 ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            RingtoneManager.getRingtone(context, soundUri)?.play()
+            finishRingtone = RingtoneManager.getRingtone(context, soundUri)?.also { it.play() }
         } catch (_: Exception) {
-            // Notification sound still acts as the main feedback path.
+            finishRingtone = null
         }
 
         try {
@@ -339,6 +363,27 @@ object PomodoroNotifier {
             }
         } catch (_: Exception) {
             // Some devices disable vibration for apps or battery modes.
+        }
+    }
+
+    fun isFinishFeedbackActive(): Boolean = finishFeedbackActive
+
+    fun stopFinishFeedback(context: Context, dismissNotification: Boolean = false) {
+        runCatching { finishRingtone?.stop() }
+        finishRingtone = null
+        finishFeedbackActive = false
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                manager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            vibrator.cancel()
+        }
+        if (dismissNotification) {
+            NotificationManagerCompat.from(context).cancel(FINISHED_NOTIFICATION_ID)
         }
     }
 }
