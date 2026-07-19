@@ -31,12 +31,13 @@ interface TodoDao {
     @Update
     suspend fun updateTodoItem(item: TodoItem)
 
-    @Update
-    suspend fun updateTodoItems(items: List<TodoItem>)
+    @Query("UPDATE todo_items SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Int, sortOrder: Long)
+
+    @Query("UPDATE todo_items SET archivedAt = :archivedAt WHERE id = :id")
+    suspend fun archiveTodoItem(id: Int, archivedAt: Long)
 
     @Delete
     suspend fun deleteTodoItem(item: TodoItem)
 
-    @Query("DELETE FROM todo_items WHERE isCompleted = 1")
-    suspend fun deleteCompletedItems()
 }

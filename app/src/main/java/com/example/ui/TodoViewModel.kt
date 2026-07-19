@@ -66,11 +66,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         val database = AppDatabase.getDatabase(application)
-        repository = TodoRepository(
-            database.todoDao(),
-            database.segmentedPlanDao(),
-            database.dailyTodoSnapshotDao()
-        )
+        repository = TodoRepository(database)
         startDateTicker()
         startPomodoroTicker()
     }
@@ -384,14 +380,16 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
             if (updated.calendarEventId != null) {
                 CalendarSyncHelper.updateTodoInCalendar(getApplication(), updated)
             }
-            repository.update(updated)
-
             val todayKey = DateUtils.todayKey()
-            if (willComplete) {
-                repository.upsertSnapshot(updated.toDailySnapshot(todayKey, wasCompleted = true))
-            } else {
-                repository.deleteSnapshot(updated.id, todayKey)
-            }
+            repository.setCompletion(
+                item = updated,
+                snapshot = if (willComplete) {
+                    updated.toDailySnapshot(todayKey, wasCompleted = true)
+                } else {
+                    null
+                },
+                snapshotDayKey = todayKey
+            )
             
             val context = getApplication<android.app.Application>()
             if (updated.isCompleted) {
@@ -421,21 +419,42 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
                 CalendarSyncHelper.deleteTodoFromCalendar(getApplication(), eventId)
             }
             com.example.utils.AlarmScheduler.cancelAlarm(getApplication(), item)
-            repository.delete(item)
+            val completedAt = item.completedAt ?: System.currentTimeMillis()
+            repository.archiveWithSnapshot(
+                itemId = item.id,
+                archivedAt = System.currentTimeMillis(),
+                snapshot = item.toDailySnapshot(
+                    dayKey = DateUtils.dayKey(completedAt),
+                    wasCompleted = true
+                )
+            )
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }
 
     fun deleteCompleted() {
         viewModelScope.launch {
-            val itemsToDelete = todoItemsState.value.filter { it.isCompleted }
+            val itemsToDelete = repository.getAllItemsOnce().filter {
+                it.archivedAt == null && it.isCompleted
+            }
             itemsToDelete.forEach { item ->
                 item.calendarEventId?.let { eventId ->
                     CalendarSyncHelper.deleteTodoFromCalendar(getApplication(), eventId)
                 }
                 com.example.utils.AlarmScheduler.cancelAlarm(getApplication(), item)
             }
-            repository.deleteCompleted()
+            val archivedAt = System.currentTimeMillis()
+            repository.archiveCompletedWithSnapshots(
+                items = itemsToDelete,
+                snapshots = itemsToDelete.map { item ->
+                    val completedAt = item.completedAt ?: archivedAt
+                    item.toDailySnapshot(
+                        dayKey = DateUtils.dayKey(completedAt),
+                        wasCompleted = true
+                    )
+                },
+                archivedAt = archivedAt
+            )
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }
@@ -450,11 +469,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateTodoOrder(orderedItems: List<TodoItem>) {
         viewModelScope.launch {
-            repository.updateAll(
-                orderedItems.mapIndexed { index, item ->
-                    item.copy(sortOrder = index.toLong() * 1_000L)
-                }
-            )
+            repository.updateSortOrders(orderedItems.map { it.id })
             TodoAppWidgetProvider.updateAllWidgets(getApplication())
         }
     }

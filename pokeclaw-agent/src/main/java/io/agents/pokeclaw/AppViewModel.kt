@@ -92,7 +92,7 @@ class AppViewModel : ViewModel() {
     fun getAgentConfig(): AgentConfig =
         ModelConfigRepository.snapshot().toAgentConfig(
             temperature = 0.1,
-            maxIterations = 60,
+            maxIterations = KVUtils.getAgentMaxIterations(),
             streaming = KVUtils.isStreamingEnabled()
         )
 

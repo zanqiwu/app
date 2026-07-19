@@ -116,7 +116,7 @@ fun SegmentedPlansScreenContent(
     }
     val historyArchiveGrouped = remember(dailySnapshots, plans, todayStr) {
         buildList<Pair<String, HistoryArchiveItem>> {
-            dailySnapshots.filter { it.dayKey != todayStr }.forEach { snapshot ->
+            dailySnapshots.forEach { snapshot ->
                 add(
                     snapshot.dayKey to HistoryArchiveItem(
                         title = snapshot.title,

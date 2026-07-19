@@ -68,6 +68,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * PokeClaw Chat Screen — Jetpack Compose
@@ -592,12 +593,19 @@ private fun AssistantPreferencesDialog(
     var streaming by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isStreamingEnabled()) }
     var ttsEnabled by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isTtsEnabled()) }
     var ttsLanguage by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.getTtsLanguage()) }
+    var maxIterations by remember { mutableIntStateOf(io.agents.pokeclaw.utils.KVUtils.getAgentMaxIterations()) }
+    var stuckTolerance by remember { mutableIntStateOf(io.agents.pokeclaw.utils.KVUtils.getAgentStuckTolerance()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("龙虾偏好设置") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 520.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 PreferenceSwitchRow("流式输出", "边生成边显示回复", streaming) { streaming = it }
                 PreferenceSwitchRow("语音朗读", "回复完成后自动朗读", ttsEnabled) { ttsEnabled = it }
                 if (ttsEnabled) {
@@ -615,6 +623,40 @@ private fun AssistantPreferencesDialog(
                         )
                     }
                 }
+                HorizontalDivider(color = colors.divider)
+                Text("Agent 执行调度", fontWeight = FontWeight.SemiBold, color = colors.textPrimary)
+                Text(
+                    "最大执行轮次：$maxIterations",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textPrimary
+                )
+                Text(
+                    "复杂任务可提高轮次；轮次越高，耗时和 API 消耗也越多。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textSecondary
+                )
+                Slider(
+                    value = maxIterations.toFloat(),
+                    onValueChange = { maxIterations = ((it / 10f).roundToInt() * 10).coerceIn(20, 200) },
+                    valueRange = 20f..200f,
+                    steps = 17
+                )
+                Text(
+                    "连续卡住容忍次数：$stuckTolerance",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.textPrimary
+                )
+                Text(
+                    "提高后 Agent 会尝试更多恢复策略，再停止任务。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textSecondary
+                )
+                Slider(
+                    value = stuckTolerance.toFloat(),
+                    onValueChange = { stuckTolerance = it.roundToInt().coerceIn(3, 20) },
+                    valueRange = 3f..20f,
+                    steps = 16
+                )
             }
         },
         confirmButton = {
@@ -622,6 +664,8 @@ private fun AssistantPreferencesDialog(
                 io.agents.pokeclaw.utils.KVUtils.setStreamingEnabled(streaming)
                 io.agents.pokeclaw.utils.KVUtils.setTtsEnabled(ttsEnabled)
                 io.agents.pokeclaw.utils.KVUtils.setTtsLanguage(ttsLanguage)
+                io.agents.pokeclaw.utils.KVUtils.setAgentMaxIterations(maxIterations)
+                io.agents.pokeclaw.utils.KVUtils.setAgentStuckTolerance(stuckTolerance)
                 onChanged()
                 onDismiss()
             }) { Text("保存") }

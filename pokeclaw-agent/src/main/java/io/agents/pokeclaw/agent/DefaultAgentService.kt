@@ -17,6 +17,7 @@ import io.agents.pokeclaw.service.ClawAccessibilityService
 import io.agents.pokeclaw.tool.ToolRegistry
 import io.agents.pokeclaw.tool.impl.GetScreenInfoTool
 import io.agents.pokeclaw.tool.ToolResult
+import io.agents.pokeclaw.utils.KVUtils
 import io.agents.pokeclaw.utils.XLog
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -538,7 +539,9 @@ class DefaultAgentService : AgentService {
         var lastScreenHash = 0
         var previousScreenTexts: Set<String> = emptySet()
         val tokenMonitor = TokenMonitor(config.modelName)
-        val stuckDetector = StuckDetector()
+        val stuckDetector = StuckDetector(
+            autoKillAfterDetections = KVUtils.getAgentStuckTolerance()
+        )
         val taskBudget = TaskBudget.fromSettings()
         var softLimitWarned = false
         var consecutiveNoToolCalls = 0
@@ -817,8 +820,9 @@ class DefaultAgentService : AgentService {
                         val status = tokenMonitor.getStatus()
                         callback.onComplete(
                             iterations,
-                            "Task stopped: agent was stuck (${detection.signal.description}). " +
-                            "Used ${status.formattedTokens} tokens (${status.formattedCost}).",
+                            "任务已停止：Agent 连续多轮没有取得进展（${detection.signal.description}）。" +
+                            "已使用 ${status.formattedTokens} tokens（${status.formattedCost}）。" +
+                            "可在右上角设置中提高卡住容忍次数后重试。",
                             totalTokens,
                             actualModelName
                         )

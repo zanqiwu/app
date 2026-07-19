@@ -373,6 +373,8 @@ object KVUtils {
     private const val KEY_STREAMING_ENABLED = "KEY_STREAMING_ENABLED"
     private const val KEY_TTS_ENABLED = "KEY_TTS_ENABLED"
     private const val KEY_TTS_LANGUAGE = "KEY_TTS_LANGUAGE"
+    private const val KEY_AGENT_MAX_ITERATIONS = "KEY_AGENT_MAX_ITERATIONS"
+    private const val KEY_AGENT_STUCK_TOLERANCE = "KEY_AGENT_STUCK_TOLERANCE"
 
     fun isStreamingEnabled(): Boolean = getBoolean(KEY_STREAMING_ENABLED, true)
     fun setStreamingEnabled(enabled: Boolean) = putBoolean(KEY_STREAMING_ENABLED, enabled)
@@ -380,6 +382,10 @@ object KVUtils {
     fun setTtsEnabled(enabled: Boolean) = putBoolean(KEY_TTS_ENABLED, enabled)
     fun getTtsLanguage(): String = getString(KEY_TTS_LANGUAGE, "zh-CN")
     fun setTtsLanguage(languageTag: String) = putString(KEY_TTS_LANGUAGE, languageTag)
+    fun getAgentMaxIterations(): Int = getInt(KEY_AGENT_MAX_ITERATIONS, 60).coerceIn(20, 200)
+    fun setAgentMaxIterations(value: Int) = putInt(KEY_AGENT_MAX_ITERATIONS, value.coerceIn(20, 200))
+    fun getAgentStuckTolerance(): Int = getInt(KEY_AGENT_STUCK_TOLERANCE, 5).coerceIn(3, 20)
+    fun setAgentStuckTolerance(value: Int) = putInt(KEY_AGENT_STUCK_TOLERANCE, value.coerceIn(3, 20))
 
     // ==================== Global Prompt (#45) ====================
     // User-defined persistent instructions prepended to every system prompt.

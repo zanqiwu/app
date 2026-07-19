@@ -19,7 +19,10 @@ import java.util.ArrayDeque
  *   Level 2: Suggest strategy switch (different tool)
  *   Level 3: Auto-kill (force finish)
  */
-class StuckDetector(private val windowSize: Int = 8) {
+class StuckDetector(
+    private val windowSize: Int = 8,
+    private val autoKillAfterDetections: Int = 5
+) {
 
     private val actions = ArrayDeque<String>(windowSize + 1)
     private val screenHashes = ArrayDeque<Int>(windowSize + 1)
@@ -93,7 +96,7 @@ class StuckDetector(private val windowSize: Int = 8) {
         if (signal != null) {
             consecutiveStuckSteps++
             val level = when {
-                consecutiveStuckSteps >= 5 -> RecoveryLevel.AUTO_KILL
+                consecutiveStuckSteps >= autoKillAfterDetections -> RecoveryLevel.AUTO_KILL
                 consecutiveStuckSteps >= 3 -> RecoveryLevel.STRATEGY_SWITCH
                 else -> RecoveryLevel.HINT
             }
