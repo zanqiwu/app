@@ -13,6 +13,7 @@ import io.agents.pokeclaw.agent.llm.LlmClient
 import io.agents.pokeclaw.agent.llm.LlmClientFactory
 import io.agents.pokeclaw.agent.llm.LlmResponse
 import io.agents.pokeclaw.agent.llm.StreamingListener
+import io.agents.pokeclaw.agent.llm.FinishSummaryStreamDecoder
 import io.agents.pokeclaw.service.ClawAccessibilityService
 import io.agents.pokeclaw.tool.ToolRegistry
 import io.agents.pokeclaw.tool.impl.GetScreenInfoTool
@@ -273,10 +274,18 @@ class DefaultAgentService : AgentService {
             try {
                 return if (config.streaming) {
                     val textBuilder = StringBuilder()
+                    val finishSummaryDecoder = FinishSummaryStreamDecoder()
                     llmClient.chatStreaming(messages, toolSpecs, object : StreamingListener {
                         override fun onPartialText(token: String) {
                             textBuilder.append(token)
                             callback.onContent(iteration, token)
+                        }
+                        override fun onPartialToolCall(index: Int, name: String?, partialArguments: String) {
+                            val summaryDelta = finishSummaryDecoder.accept(index, name, partialArguments)
+                            if (summaryDelta.isNotEmpty()) {
+                                textBuilder.append(summaryDelta)
+                                callback.onContent(iteration, summaryDelta)
+                            }
                         }
                         override fun onComplete(response: LlmResponse) {}
                         override fun onError(error: Throwable) {}

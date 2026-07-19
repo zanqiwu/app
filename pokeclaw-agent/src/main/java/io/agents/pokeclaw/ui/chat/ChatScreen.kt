@@ -1097,8 +1097,8 @@ private fun ChatInputBar(
         }
     }
 
-    val taskBg = Color(0xFF1A1410)
-    val taskBorder = colors.accent.copy(alpha = 0.25f)
+    val taskBg = colors.surface
+    val taskBorder = colors.divider
 
     Column(
         modifier = Modifier
@@ -1122,15 +1122,15 @@ private fun ChatInputBar(
                 Surface(
                     onClick = { onTaskModeChange(false) },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (!isTaskMode) colors.aiBubble else Color.Transparent,
-                    border = if (!isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.aiBubbleBorder) else null,
+                    color = if (!isTaskMode) colors.accent.copy(alpha = 0.12f) else Color.Transparent,
+                    border = if (!isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.accent.copy(alpha = 0.28f)) else null,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
                         "对话",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (!isTaskMode) colors.textPrimary else colors.textTertiary,
+                        color = if (!isTaskMode) colors.accent else colors.textTertiary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(vertical = 9.dp),
                     )
@@ -1139,15 +1139,15 @@ private fun ChatInputBar(
                 Surface(
                     onClick = { onTaskModeChange(true) },
                     shape = RoundedCornerShape(10.dp),
-                    color = if (isTaskMode) colors.accent else Color.Transparent,
-                    border = if (isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.accent) else null,
+                    color = if (isTaskMode) colors.accent.copy(alpha = 0.12f) else Color.Transparent,
+                    border = if (isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.accent.copy(alpha = 0.28f)) else null,
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
                         "执行",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (isTaskMode) Color.White else colors.textTertiary,
+                        color = if (isTaskMode) colors.accent else colors.textTertiary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(vertical = 9.dp),
                     )

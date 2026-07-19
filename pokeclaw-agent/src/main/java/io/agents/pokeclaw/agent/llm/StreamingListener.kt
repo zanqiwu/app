@@ -5,6 +5,7 @@ package io.agents.pokeclaw.agent.llm
 
 interface StreamingListener {
     fun onPartialText(token: String)
+    fun onPartialToolCall(index: Int, name: String?, partialArguments: String) {}
     fun onComplete(response: LlmResponse)
     fun onError(error: Throwable)
 }

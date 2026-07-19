@@ -11,6 +11,7 @@ import dev.langchain4j.model.chat.ChatModel
 import dev.langchain4j.model.chat.StreamingChatModel
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.model.chat.response.ChatResponse
+import dev.langchain4j.model.chat.response.PartialToolCall
 import dev.langchain4j.model.chat.response.StreamingChatResponseHandler
 import dev.langchain4j.model.openai.OpenAiChatModel
 import dev.langchain4j.model.openai.OpenAiStreamingChatModel
@@ -84,6 +85,14 @@ class OpenAiLlmClient(
         streamingChatModel.chat(request, object : StreamingChatResponseHandler {
             override fun onPartialResponse(token: String) {
                 listener.onPartialText(token)
+            }
+
+            override fun onPartialToolCall(partialToolCall: PartialToolCall) {
+                listener.onPartialToolCall(
+                    index = partialToolCall.index(),
+                    name = partialToolCall.name(),
+                    partialArguments = partialToolCall.partialArguments().orEmpty(),
+                )
             }
 
             override fun onCompleteResponse(response: ChatResponse) {
