@@ -53,6 +53,8 @@ class ChatSessionController(
     private val cloudHistory = mutableListOf<dev.langchain4j.data.message.ChatMessage>()
     private var isModelReady = false
     private var suppressNextCloudSwitchMessage = false
+    private var requestGeneration = 0L
+    private var activeReplyTimestamp: Long? = null
 
     fun isModelReady(): Boolean = isModelReady
 
@@ -125,7 +127,17 @@ class ChatSessionController(
 
         addUser(text)
         uiState.isAwaitingReply.value = true
-        uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, "..."))
+        val generation = ++requestGeneration
+        val replyTimestamp = System.currentTimeMillis()
+        activeReplyTimestamp = replyTimestamp
+        uiState.messages.add(
+            ChatMessage(
+                role = ChatMessage.Role.ASSISTANT,
+                content = "...",
+                timestamp = replyTimestamp,
+                isStreaming = true,
+            )
+        )
 
         executor.submit {
             try {
@@ -146,7 +158,11 @@ class ChatSessionController(
                             if (now - lastUiUpdate >= STREAM_UPDATE_INTERVAL_MS) {
                                 lastUiUpdate = now
                                 val snapshot = streamedText.toString()
-                                postToMain { replaceTypingIndicator(snapshot) }
+                                postToMain {
+                                    if (generation == requestGeneration && activeReplyTimestamp == replyTimestamp) {
+                                        replaceActiveReply(replyTimestamp, snapshot, isStreaming = true)
+                                    }
+                                }
                             }
                         }
 
@@ -180,8 +196,10 @@ class ChatSessionController(
                 val fallbackModel = cloudModelName ?: ModelConfigRepository.snapshot().activeCloud.modelName
                 val modelTag = response.modelName ?: fallbackModel
                 postToMain {
-                    replaceTypingIndicator(displayText, modelTag)
+                    if (generation != requestGeneration || activeReplyTimestamp != replyTimestamp) return@postToMain
+                    replaceActiveReply(replyTimestamp, displayText, modelTag, isStreaming = false)
                     uiState.isAwaitingReply.value = false
+                    activeReplyTimestamp = null
                     if (usageSummary != null) {
                         uiState.sessionTokens.value += usageSummary.totalTokens
                         uiState.sessionCost.value += ModelPricing.estimateCost(
@@ -196,8 +214,14 @@ class ChatSessionController(
             } catch (e: Exception) {
                 XLog.e(TAG, "Cloud chat error", e)
                 postToMain {
-                    replaceTypingIndicator("请求失败：${e.message ?: "未知错误"}")
+                    if (generation != requestGeneration || activeReplyTimestamp != replyTimestamp) return@postToMain
+                    replaceActiveReply(
+                        replyTimestamp,
+                        "请求失败：${e.message ?: "未知错误"}",
+                        isStreaming = false,
+                    )
                     uiState.isAwaitingReply.value = false
+                    activeReplyTimestamp = null
                 }
             }
         }
@@ -240,7 +264,7 @@ class ChatSessionController(
             when (message.role) {
                 ChatMessage.Role.USER -> cloudHistory.add(UserMessage.from(message.content))
                 ChatMessage.Role.ASSISTANT -> if (message.content != "...") {
-                    cloudHistory.add(AiMessage.from(message.content))
+                    cloudHistory.add(AiMessage.from(stripTokenUsage(message.content)))
                 }
                 else -> Unit
             }
@@ -251,13 +275,20 @@ class ChatSessionController(
         if (cloudHistory.isEmpty()) rebuildCloudHistory(uiState.messages)
     }
 
-    private fun replaceTypingIndicator(text: String, actualModelName: String? = null) {
+    private fun replaceActiveReply(
+        replyTimestamp: Long,
+        text: String,
+        actualModelName: String? = null,
+        isStreaming: Boolean,
+    ) {
         val modelTag = actualModelName ?: cloudModelName.orEmpty()
-        val index = uiState.messages.indexOfLast {
-            it.role == ChatMessage.Role.ASSISTANT && (it.content == "..." || uiState.isAwaitingReply.value)
-        }
-        val message = ChatMessage(ChatMessage.Role.ASSISTANT, text, modelName = modelTag)
-        if (index >= 0) uiState.messages[index] = message else uiState.messages.add(message)
+        replaceAssistantReply(
+            messages = uiState.messages,
+            replyTimestamp = replyTimestamp,
+            text = text,
+            modelName = modelTag,
+            isStreaming = isStreaming,
+        )
     }
 
     private fun addUser(text: String) {

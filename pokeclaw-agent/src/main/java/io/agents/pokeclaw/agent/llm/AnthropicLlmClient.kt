@@ -35,6 +35,7 @@ class AnthropicLlmClient(
         if (config.baseUrl.isNotEmpty()) {
             builder.baseUrl(config.baseUrl)
         }
+        providerThinkingParameters(config).takeIf { it.isNotEmpty() }?.let(builder::customParameters)
         return builder.build()
     }
 
@@ -47,6 +48,7 @@ class AnthropicLlmClient(
         if (config.baseUrl.isNotEmpty()) {
             builder.baseUrl(config.baseUrl)
         }
+        providerThinkingParameters(config).takeIf { it.isNotEmpty() }?.let(builder::customParameters)
         return builder.build()
     }
 

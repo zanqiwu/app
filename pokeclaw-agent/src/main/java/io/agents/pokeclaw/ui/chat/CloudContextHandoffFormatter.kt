@@ -13,7 +13,7 @@ object CloudContextHandoffFormatter {
 
     fun conversationLines(messages: List<ChatMessage>): List<String> {
         return messages.mapNotNull { message ->
-            val content = message.content.trim()
+            val content = stripTokenUsage(message.content).trim()
             if (content.isEmpty() || content == "...") {
                 return@mapNotNull null
             }

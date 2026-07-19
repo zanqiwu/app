@@ -178,7 +178,10 @@ class ComposeChatActivity : ComponentActivity() {
                 onNewChat = { newChat() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onOpenModels = { startActivity(Intent(this, LlmConfigActivity::class.java)) },
-                onPreferencesChanged = { syncTaskAgentConfig() },
+                onPreferencesChanged = {
+                    syncTaskAgentConfig()
+                    chatSessionController.loadModelIfReady(visibleMessages = _messages)
+                },
                 onFixPermissions = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onAttach = { Toast.makeText(this, "Image upload coming soon", Toast.LENGTH_SHORT).show() },
                 conversations = _conversations.toList(),

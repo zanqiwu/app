@@ -38,6 +38,7 @@ class OpenAiLlmClient(
         if (config.baseUrl.contains("xiaomimimo.com", ignoreCase = true)) {
             builder.customHeaders(mapOf("api-key" to config.apiKey))
         }
+        providerThinkingParameters(config).takeIf { it.isNotEmpty() }?.let(builder::customParameters)
         return builder.build()
     }
 
@@ -53,6 +54,7 @@ class OpenAiLlmClient(
         if (config.baseUrl.contains("xiaomimimo.com", ignoreCase = true)) {
             builder.customHeaders(mapOf("api-key" to config.apiKey))
         }
+        providerThinkingParameters(config).takeIf { it.isNotEmpty() }?.let(builder::customParameters)
         return builder.build()
     }
 

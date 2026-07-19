@@ -65,7 +65,8 @@ data class ResolvedModelConfig(
             maxIterations = maxIterations,
             temperature = temperature,
             provider = activeCloud.agentProvider,
-            streaming = streaming
+            streaming = streaming,
+            thinkingEnabled = KVUtils.isThinkingEnabled(),
         )
     }
 }

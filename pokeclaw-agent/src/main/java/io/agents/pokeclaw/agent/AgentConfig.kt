@@ -13,7 +13,8 @@ data class AgentConfig(
     val maxIterations: Int = 60,
     val temperature: Double = 0.1,
     val provider: LlmProvider = LlmProvider.OPENAI,
-    val streaming: Boolean = false
+    val streaming: Boolean = false,
+    val thinkingEnabled: Boolean = false,
 ) {
     companion object {
         const val DEFAULT_SYSTEM_PROMPT =
@@ -185,6 +186,7 @@ Steps:
         private var temperature: Double = 0.1
         private var provider: LlmProvider = LlmProvider.OPENAI
         private var streaming: Boolean = false
+        private var thinkingEnabled: Boolean = false
 
         fun apiKey(apiKey: String) = apply { this.apiKey = apiKey }
         fun baseUrl(baseUrl: String) = apply { this.baseUrl = baseUrl }
@@ -194,6 +196,7 @@ Steps:
         fun temperature(temperature: Double) = apply { this.temperature = temperature }
         fun provider(provider: LlmProvider) = apply { this.provider = provider }
         fun streaming(streaming: Boolean) = apply { this.streaming = streaming }
+        fun thinkingEnabled(thinkingEnabled: Boolean) = apply { this.thinkingEnabled = thinkingEnabled }
 
         fun build(): AgentConfig {
             require(apiKey.isNotEmpty() || baseUrl.isNotEmpty()) {
@@ -202,7 +205,17 @@ Steps:
             // Inject persistent global instructions (#45) ahead of whatever
             // caller-specific systemPrompt was set. No-op if user hasn't set one.
             val finalSystemPrompt = PromptUtils.applyGlobalPrompt(systemPrompt)
-            return AgentConfig(apiKey, baseUrl, modelName, finalSystemPrompt, maxIterations, temperature, provider, streaming)
+            return AgentConfig(
+                apiKey,
+                baseUrl,
+                modelName,
+                finalSystemPrompt,
+                maxIterations,
+                temperature,
+                provider,
+                streaming,
+                thinkingEnabled,
+            )
         }
     }
 }

@@ -10,10 +10,13 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.text.method.LinkMovementMethod
 import android.text.format.DateUtils
+import android.util.TypedValue
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.AppCompatTextView
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -48,6 +51,7 @@ import io.agents.pokeclaw.agent.skill.Skill
 import io.agents.pokeclaw.agent.skill.SkillCategory
 import io.agents.pokeclaw.agent.skill.SkillRegistry
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -64,6 +68,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import io.noties.markwon.Markwon
+import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
+import io.noties.markwon.ext.tables.TablePlugin
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -309,7 +317,6 @@ fun ChatScreen(
                             isTaskRunning = isTaskRunning,
                             inputEnabled = inputEnabled,
                             isTaskMode = isTaskMode,
-                            isLocalModel = isLocalUI,
                             onTaskModeChange = { isTaskMode = it },
                             onSendChat = onSendChat,
                             onSendTask = onSendTask,
@@ -591,6 +598,7 @@ private fun AssistantPreferencesDialog(
     colors: PokeclawColors,
 ) {
     var streaming by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isStreamingEnabled()) }
+    var thinkingEnabled by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isThinkingEnabled()) }
     var ttsEnabled by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.isTtsEnabled()) }
     var ttsLanguage by remember { mutableStateOf(io.agents.pokeclaw.utils.KVUtils.getTtsLanguage()) }
     var maxIterations by remember { mutableIntStateOf(io.agents.pokeclaw.utils.KVUtils.getAgentMaxIterations()) }
@@ -607,6 +615,11 @@ private fun AssistantPreferencesDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 PreferenceSwitchRow("流式输出", "边生成边显示回复", streaming) { streaming = it }
+                PreferenceSwitchRow(
+                    "深度思考",
+                    "关闭后 MiMo、DeepSeek 响应更快；复杂推理任务可临时开启",
+                    thinkingEnabled,
+                ) { thinkingEnabled = it }
                 PreferenceSwitchRow("语音朗读", "回复完成后自动朗读", ttsEnabled) { ttsEnabled = it }
                 if (ttsEnabled) {
                     Text("朗读语言", style = MaterialTheme.typography.labelMedium, color = colors.textSecondary)
@@ -662,6 +675,7 @@ private fun AssistantPreferencesDialog(
         confirmButton = {
             TextButton(onClick = {
                 io.agents.pokeclaw.utils.KVUtils.setStreamingEnabled(streaming)
+                io.agents.pokeclaw.utils.KVUtils.setThinkingEnabled(thinkingEnabled)
                 io.agents.pokeclaw.utils.KVUtils.setTtsEnabled(ttsEnabled)
                 io.agents.pokeclaw.utils.KVUtils.setTtsLanguage(ttsLanguage)
                 io.agents.pokeclaw.utils.KVUtils.setAgentMaxIterations(maxIterations)
@@ -753,7 +767,13 @@ private fun MessageList(
             val message = messages[index]
             when (message.role) {
                 ChatMessage.Role.USER -> UserBubble(message.content, message.timestamp, colors)
-                ChatMessage.Role.ASSISTANT -> AssistantBubble(message.content, message.timestamp, colors, message.modelName)
+                ChatMessage.Role.ASSISTANT -> AssistantBubble(
+                    text = message.content,
+                    timestamp = message.timestamp,
+                    colors = colors,
+                    modelName = message.modelName,
+                    isStreaming = message.isStreaming,
+                )
                 ChatMessage.Role.SYSTEM -> SystemMessage(message.content, colors)
                 ChatMessage.Role.TOOL_GROUP -> ToolGroup(message, colors)
             }
@@ -796,7 +816,14 @@ private fun UserBubble(text: String, timestamp: Long, colors: PokeclawColors) {
 }
 
 @Composable
-private fun AssistantBubble(text: String, timestamp: Long, colors: PokeclawColors, modelName: String? = null) {
+private fun AssistantBubble(
+    text: String,
+    timestamp: Long,
+    colors: PokeclawColors,
+    modelName: String? = null,
+    isStreaming: Boolean = false,
+) {
+    val usageContent = remember(text) { splitTokenUsage(text) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -834,13 +861,35 @@ private fun AssistantBubble(text: String, timestamp: Long, colors: PokeclawColor
                     shape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 4.dp),
                     border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.aiBubbleBorder),
                 ) {
-                    Text(
-                        text = text,
-                        color = colors.aiText,
-                        fontSize = 15.sp,
-                        lineHeight = 21.sp,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    )
+                    Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                        if (isStreaming) {
+                            Text(
+                                text = usageContent.responseText,
+                                color = colors.aiText,
+                                fontSize = 15.sp,
+                                lineHeight = 21.sp,
+                            )
+                        } else {
+                            MarkdownText(
+                                markdown = usageContent.responseText,
+                                textColor = colors.aiText,
+                                linkColor = colors.accent,
+                            )
+                        }
+                        usageContent.footer?.let { footer ->
+                            HorizontalDivider(
+                                modifier = Modifier.padding(top = 10.dp, bottom = 7.dp),
+                                color = colors.aiBubbleBorder,
+                                thickness = 0.5.dp,
+                            )
+                            Text(
+                                text = footer,
+                                color = colors.textTertiary,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -857,6 +906,44 @@ private fun AssistantBubble(text: String, timestamp: Long, colors: PokeclawColor
             )
         }
     }
+}
+
+@Composable
+private fun MarkdownText(
+    markdown: String,
+    textColor: Color,
+    linkColor: Color,
+) {
+    val context = LocalContext.current
+    val markwon = remember(context) {
+        Markwon.builder(context)
+            .usePlugin(StrikethroughPlugin.create())
+            .usePlugin(TablePlugin.create(context))
+            .build()
+    }
+
+    AndroidView(
+        factory = { viewContext ->
+            AppCompatTextView(viewContext).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                setLineSpacing(2f, 1.12f)
+                includeFontPadding = false
+                setPadding(0, 0, 0, 0)
+                setTextIsSelectable(true)
+                linksClickable = true
+                movementMethod = LinkMovementMethod.getInstance()
+            }
+        },
+        update = { textView ->
+            textView.setTextColor(textColor.toArgb())
+            textView.setLinkTextColor(linkColor.toArgb())
+            if (textView.tag != markdown) {
+                markwon.setMarkdown(textView, markdown)
+                textView.tag = markdown
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 private fun formatBubbleTimestamp(timestamp: Long): String {
@@ -938,7 +1025,6 @@ private fun ChatInputBar(
     isTaskRunning: Boolean,
     inputEnabled: Boolean = true,
     isTaskMode: Boolean,
-    isLocalModel: Boolean,
     onTaskModeChange: (Boolean) -> Unit,
     onSendChat: (String) -> Unit,
     onSendTask: (String) -> Unit,
@@ -1006,7 +1092,7 @@ private fun ChatInputBar(
     LaunchedEffect(prefillText) {
         if (prefillText.isNotEmpty()) {
             text = prefillText
-            if (isLocalModel) onTaskModeChange(prefillIsTask)
+            onTaskModeChange(prefillIsTask)
             onPrefillConsumed()
         }
     }
@@ -1016,16 +1102,16 @@ private fun ChatInputBar(
 
     Column(
         modifier = Modifier
-            .background(if (isTaskMode && isLocalModel) taskBg else colors.surface)
+            .background(if (isTaskMode) taskBg else colors.surface)
             .navigationBarsPadding()
     ) {
         HorizontalDivider(
-            color = if (isTaskMode && isLocalModel) taskBorder else colors.divider,
+            color = if (isTaskMode) taskBorder else colors.divider,
             thickness = 1.dp,
         )
 
-        // Segmented Chat/Task toggle — Local LLM only
-        if (isLocalModel) {
+        // Phone tools are loaded only when the user explicitly selects execution mode.
+        run {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1041,7 +1127,7 @@ private fun ChatInputBar(
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
-                        "💬 Chat",
+                        "对话",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (!isTaskMode) colors.textPrimary else colors.textTertiary,
@@ -1058,7 +1144,7 @@ private fun ChatInputBar(
                     modifier = Modifier.weight(1f),
                 ) {
                     Text(
-                        "🤖 Task",
+                        "执行",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isTaskMode) Color.White else colors.textTertiary,
@@ -1081,12 +1167,8 @@ private fun ChatInputBar(
                 onValueChange = { text = it },
                 placeholder = {
                     Text(
-                        when {
-                            isLocalModel && isTaskMode -> "Describe a phone task..."
-                            !isLocalModel -> "Chat or give a task..."
-                            else -> "Chat with local AI..."
-                        },
-                        color = if (isTaskMode && isLocalModel) colors.accent.copy(alpha = 0.5f) else colors.textTertiary,
+                        if (isTaskMode) "描述要让手机完成的操作..." else "输入消息...",
+                        color = if (isTaskMode) colors.accent.copy(alpha = 0.5f) else colors.textTertiary,
                         fontSize = 14.sp,
                     )
                 },
@@ -1095,13 +1177,13 @@ private fun ChatInputBar(
                     .heightIn(min = 40.dp, max = 100.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = if (isTaskMode && isLocalModel) colors.accent else colors.accent.copy(alpha = 0.4f),
-                    unfocusedBorderColor = if (isTaskMode && isLocalModel) colors.accent.copy(alpha = 0.6f) else colors.inputBorder,
-                    cursorColor = if (isTaskMode && isLocalModel) colors.accent else colors.accent,
+                    focusedBorderColor = if (isTaskMode) colors.accent else colors.accent.copy(alpha = 0.4f),
+                    unfocusedBorderColor = if (isTaskMode) colors.accent.copy(alpha = 0.6f) else colors.inputBorder,
+                    cursorColor = colors.accent,
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary,
-                    focusedContainerColor = if (isTaskMode && isLocalModel) taskBg else Color.Transparent,
-                    unfocusedContainerColor = if (isTaskMode && isLocalModel) taskBg else Color.Transparent,
+                    focusedContainerColor = if (isTaskMode) taskBg else Color.Transparent,
+                    unfocusedContainerColor = if (isTaskMode) taskBg else Color.Transparent,
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                 maxLines = 4,
@@ -1147,7 +1229,7 @@ private fun ChatInputBar(
                     if (isTaskRunning) {
                         onStopAll()
                     } else if (!isAwaitingReply && inputEnabled && text.isNotBlank()) {
-                        if (!isLocalModel || isTaskMode) {
+                        if (isTaskMode) {
                             onSendTask(text.trim())
                             text = ""
                             focusManager.clearFocus()
@@ -1167,7 +1249,7 @@ private fun ChatInputBar(
                     isTaskRunning -> Color(0xFFF44336)
                     isAwaitingReply -> colors.background
                     text.isBlank() -> colors.background
-                    isTaskMode && isLocalModel -> colors.accent
+                    isTaskMode -> colors.accent
                     else -> colors.userBubble
                 },
                 shape = CircleShape,

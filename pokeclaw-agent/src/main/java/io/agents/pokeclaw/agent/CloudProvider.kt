@@ -66,8 +66,8 @@ enum class CloudProvider(
         defaultBaseUrl = "https://api.deepseek.com/v1",
         showBaseUrl = true,
         models = listOf(
-            CloudModel("deepseek-chat", "DeepSeek Chat", 0.27, 1.10, ModelTier.SMART, 64_000, recommended = true),
-            CloudModel("deepseek-reasoner", "DeepSeek Reasoner", 0.55, 2.19, ModelTier.PRO, 64_000),
+            CloudModel("deepseek-v4-flash", "DeepSeek V4 Flash", 0.14, 0.28, ModelTier.FAST, 1_000_000, recommended = true),
+            CloudModel("deepseek-v4-pro", "DeepSeek V4 Pro", 0.435, 0.87, ModelTier.PRO, 1_000_000),
         )
     ),
     XIAOMI_MIMO_OPENAI(

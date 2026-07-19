@@ -67,6 +67,7 @@ class TaskFlowController(
     private val streamedTaskText = StringBuilder()
     private var lastStreamUiUpdateAt = 0L
     private var latestTokenStatus: TokenMonitor.Status? = null
+    private var activeReplyTimestamp: Long? = null
     private val pipelineRouter = PipelineRouter(activity)
 
     fun sendTask(text: String) {
@@ -184,7 +185,7 @@ class TaskFlowController(
         lastStreamUiUpdateAt = 0L
         latestTokenStatus = null
         XLog.i(TAG, "sendTask: isProcessing=TRUE")
-        uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, "..."))
+        beginAssistantReply()
 
         val taskId = "task_${System.currentTimeMillis()}"
 
@@ -210,7 +211,7 @@ class TaskFlowController(
         addUser(text)
         uiState.isAwaitingReply.value = true
         uiState.isTaskRunning.value = false
-        uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, "..."))
+        beginAssistantReply()
 
         executor.submit {
             try {
@@ -303,6 +304,7 @@ class TaskFlowController(
                                 inputTokens = it.inputTokens,
                                 outputTokens = it.outputTokens,
                                 totalTokens = it.totalTokens,
+                                rounds = it.step,
                             )
                         }
                     replaceTypingIndicator(appendTokenUsage(event.answer, usage), event.modelName)
@@ -379,24 +381,43 @@ class TaskFlowController(
         val modelTag = actualModelName
             ?: uiState.modelStatus.value.removePrefix("● ").split(" ·").firstOrNull()?.trim()
             ?: ""
-        val idx = uiState.messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT && it.content == "..." }
-        if (idx >= 0) {
-            uiState.messages[idx] = ChatMessage(ChatMessage.Role.ASSISTANT, text, modelName = modelTag)
-        } else {
-            uiState.messages.add(ChatMessage(ChatMessage.Role.ASSISTANT, text, modelName = modelTag))
-        }
+        val replyTimestamp = activeReplyTimestamp ?: return
+        replaceAssistantReply(
+            messages = uiState.messages,
+            replyTimestamp = replyTimestamp,
+            text = text,
+            modelName = modelTag,
+            isStreaming = !persist,
+        )
         if (persist) onPersistConversation()
     }
 
     private fun removeTypingIndicator() {
-        val idx = uiState.messages.indexOfLast { it.role == ChatMessage.Role.ASSISTANT && it.content == "..." }
+        val replyTimestamp = activeReplyTimestamp ?: return
+        val idx = uiState.messages.indexOfLast {
+            it.role == ChatMessage.Role.ASSISTANT && it.timestamp == replyTimestamp
+        }
         if (idx >= 0) uiState.messages.removeAt(idx)
+    }
+
+    private fun beginAssistantReply() {
+        val replyTimestamp = System.currentTimeMillis()
+        activeReplyTimestamp = replyTimestamp
+        uiState.messages.add(
+            ChatMessage(
+                role = ChatMessage.Role.ASSISTANT,
+                content = "...",
+                timestamp = replyTimestamp,
+                isStreaming = true,
+            )
+        )
     }
 
     private fun cleanupAfterTask() {
         XLog.i(TAG, "cleanupAfterTask: isProcessing=FALSE")
         uiState.isAwaitingReply.value = false
         uiState.isTaskRunning.value = false
+        activeReplyTimestamp = null
         appViewModel.clearTaskCallback()
         onTaskSettled?.invoke()
         Handler(Looper.getMainLooper()).postDelayed({

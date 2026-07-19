@@ -371,6 +371,7 @@ object KVUtils {
 
     // ==================== Assistant Preferences ====================
     private const val KEY_STREAMING_ENABLED = "KEY_STREAMING_ENABLED"
+    private const val KEY_THINKING_ENABLED = "KEY_THINKING_ENABLED"
     private const val KEY_TTS_ENABLED = "KEY_TTS_ENABLED"
     private const val KEY_TTS_LANGUAGE = "KEY_TTS_LANGUAGE"
     private const val KEY_AGENT_MAX_ITERATIONS = "KEY_AGENT_MAX_ITERATIONS"
@@ -378,6 +379,8 @@ object KVUtils {
 
     fun isStreamingEnabled(): Boolean = getBoolean(KEY_STREAMING_ENABLED, true)
     fun setStreamingEnabled(enabled: Boolean) = putBoolean(KEY_STREAMING_ENABLED, enabled)
+    fun isThinkingEnabled(): Boolean = getBoolean(KEY_THINKING_ENABLED, false)
+    fun setThinkingEnabled(enabled: Boolean) = putBoolean(KEY_THINKING_ENABLED, enabled)
     fun isTtsEnabled(): Boolean = getBoolean(KEY_TTS_ENABLED, false)
     fun setTtsEnabled(enabled: Boolean) = putBoolean(KEY_TTS_ENABLED, enabled)
     fun getTtsLanguage(): String = getString(KEY_TTS_LANGUAGE, "zh-CN")
