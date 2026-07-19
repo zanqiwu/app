@@ -432,7 +432,7 @@ class TodoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun deleteCompleted() {
+    fun archiveCompleted() {
         viewModelScope.launch {
             val itemsToDelete = repository.getAllItemsOnce().filter {
                 it.archivedAt == null && it.isCompleted

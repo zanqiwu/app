@@ -94,6 +94,8 @@ fun TodoScreen(
     // Dialog & sheet state
     var showDeleteConfirmDialog by remember { mutableStateOf<TodoItem?>(null) }
     var showMapSelectorForTodo by remember { mutableStateOf<TodoItem?>(null) }
+    var showListOptions by remember { mutableStateOf(false) }
+    var showArchiveCompletedConfirm by remember { mutableStateOf(false) }
 
     // Navigation and Background variables
     var currentScreen by remember { mutableStateOf("todos") } // "todos", "settings", "extensions"
@@ -164,13 +166,13 @@ fun TodoScreen(
                             .padding(horizontal = 20.dp, vertical = 12.dp)
                     ) {
                         if (currentScreen == "todos") {
-                            // Title and clear buttons
+                            // Title and list options
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -221,8 +223,6 @@ fun TodoScreen(
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.width(4.dp))
-
                                         // 地图模式 Toggle Button
                                         Row(
                                             modifier = Modifier
@@ -250,34 +250,6 @@ fun TodoScreen(
                                             )
                                         }
 
-                                        Spacer(modifier = Modifier.width(4.dp))
-
-                                        // 紧凑模式 Toggle Button
-                                        Row(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(16.dp))
-                                                .background(
-                                                    if (isCompactMode) MaterialTheme.colorScheme.primaryContainer
-                                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                                )
-                                                .clickable { viewModel.setCompactMode(!isCompactMode) }
-                                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = if (isCompactMode) Icons.Default.UnfoldLess else Icons.Default.UnfoldMore,
-                                                contentDescription = "紧凑模式",
-                                                tint = if (isCompactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                            Text(
-                                                text = if (isCompactMode) "紧凑" else "标准",
-                                                color = if (isCompactMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
-                                        }
                                     }
                                     Text(
                                         text = remember {
@@ -301,22 +273,51 @@ fun TodoScreen(
                                     )
                                 }
 
-                                // Clear completed button
-                                if (stats.completed > 0) {
-                                    TextButton(
-                                        onClick = { viewModel.deleteCompleted() },
-                                        colors = ButtonDefaults.textButtonColors(
-                                            contentColor = MaterialTheme.colorScheme.error
-                                        ),
-                                        modifier = Modifier.testTag("clear_completed_button")
+                                Box {
+                                    IconButton(
+                                        onClick = { showListOptions = true },
+                                        modifier = Modifier.testTag("list_options_button")
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.DeleteSweep,
-                                            contentDescription = "清除已完成",
-                                            modifier = Modifier.size(18.dp)
+                                            imageVector = Icons.Default.MoreVert,
+                                            contentDescription = "列表选项",
+                                            tint = if (backgroundBrush != null) Color.White else MaterialTheme.colorScheme.onSurface
                                         )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("清除已完成", fontSize = 13.sp)
+                                    }
+                                    DropdownMenu(
+                                        expanded = showListOptions,
+                                        onDismissRequest = { showListOptions = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(if (isCompactMode) "切换为标准显示" else "切换为紧凑显示") },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = if (isCompactMode) Icons.Default.UnfoldMore else Icons.Default.UnfoldLess,
+                                                    contentDescription = null
+                                                )
+                                            },
+                                            onClick = {
+                                                viewModel.setCompactMode(!isCompactMode)
+                                                showListOptions = false
+                                            }
+                                        )
+                                        if (stats.completed > 0) {
+                                            HorizontalDivider()
+                                            DropdownMenuItem(
+                                                text = { Text("归档已完成任务") },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Inventory2,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.error
+                                                    )
+                                                },
+                                                onClick = {
+                                                    showListOptions = false
+                                                    showArchiveCompletedConfirm = true
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -923,6 +924,31 @@ fun TodoScreen(
         DailyRolloverDialog(
             candidates = rolloverCandidates,
             onConfirm = viewModel::confirmDailyRollover
+        )
+    }
+
+    if (showArchiveCompletedConfirm) {
+        AlertDialog(
+            onDismissRequest = { showArchiveCompletedConfirm = false },
+            title = { Text("归档已完成任务") },
+            text = { Text("已完成任务将从当前待办清单移出，并保留在历史归档中。确定继续吗？") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.archiveCompleted()
+                        showArchiveCompletedConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.testTag("confirm_archive_completed_button")
+                ) {
+                    Text("确认归档")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArchiveCompletedConfirm = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 
