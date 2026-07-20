@@ -25,8 +25,8 @@ android {
     applicationId = "com.aistudio.dailytodo.whkspr"
     minSdk = 28
     targetSdk = 36
-    versionCode = 23
-    versionName = "1.22"
+    versionCode = 24
+    versionName = "1.23"
 
     manifestPlaceholders["xiaomiXmsAppId"] = xiaomiXmsAppId.get()
     manifestPlaceholders["xiaomiXmsDebug"] = "false"

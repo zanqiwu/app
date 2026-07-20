@@ -169,12 +169,7 @@ class ComposeChatActivity : ComponentActivity() {
                 isLocalModel = _isLocalModelActive.value,
                 sessionTokens = _sessionTokens.value,
                 sessionCost = _sessionCost.value,
-                onSendChat = { sendChat(it) },
-                onSendTask = { taskFlowController.sendTask(it) },
-                onStartMonitor = { target -> taskFlowController.startMonitor(target) },
-                onSendDirectMessage = { contact, app, message ->
-                    taskFlowController.sendTask("send \"$message\" to $contact on $app")
-                },
+                onSend = { taskFlowController.sendTask(it) },
                 onNewChat = { newChat() },
                 onOpenSettings = { startActivity(Intent(this, SettingsActivity::class.java)) },
                 onOpenModels = { startActivity(Intent(this, LlmConfigActivity::class.java)) },

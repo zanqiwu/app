@@ -60,12 +60,9 @@ import io.agents.pokeclaw.utils.XLog
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -145,10 +142,7 @@ fun ChatScreen(
     isLocalModel: Boolean = true,
     sessionTokens: Int = 0,
     sessionCost: Double = 0.0,
-    onSendChat: (String) -> Unit,
-    onSendTask: (String) -> Unit,
-    onStartMonitor: (MonitorTargetSpec) -> Unit = {},
-    onSendDirectMessage: (contact: String, app: String, message: String) -> Unit = { _, _, _ -> },
+    onSend: (String) -> Unit,
     onNewChat: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenModels: () -> Unit,
@@ -174,31 +168,10 @@ fun ChatScreen(
     }
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    // Shared state for prompt chip → input bar prefill
-    var prefillText by remember { mutableStateOf("") }
-    var prefillIsTask by remember { mutableStateOf(false) }
-    // Task mode state — lifted here so content area can react
-    var isTaskMode by remember { mutableStateOf(false) }
     // Local/Cloud tab — controls UI presentation AND triggers model switch.
     // Keep the tab aligned with the actual active model so returning from
     // Settings/model changes cannot leave the toolbar UI out of sync.
     var selectedTab by remember { mutableStateOf(if (isLocalModel) "local" else "cloud") }
-    val isLocalUI = selectedTab == "local"
-    // Skill dialog and activation states
-    var showMonitorSheet by remember { mutableStateOf(false) }
-    var showSendSheet by remember { mutableStateOf(false) }
-    var activatingSkill by remember { mutableStateOf<String?>(null) }
-
-    // Chat mode is always the default — user can switch to Task manually
-
-    // When activating finishes (2s animation), clear state
-    LaunchedEffect(activatingSkill) {
-        if (activatingSkill != null) {
-            kotlinx.coroutines.delay(2000)
-            activatingSkill = null
-        }
-    }
-
     LaunchedEffect(isLocalModel) {
         selectedTab = if (isLocalModel) "local" else "cloud"
     }
@@ -299,33 +272,14 @@ fun ChatScreen(
                     Column(
                         modifier = Modifier.imePadding()
                     ) {
-                        // Quick Tasks collapsible panel (v9 style)
-                        QuickTasksPanel(
-                            isLocalModel = isLocalUI,
-                            onFillTask = { text ->
-                                prefillText = text
-                                prefillIsTask = true
-                                if (isLocalUI) isTaskMode = true
-                            },
-                            onMonitorClick = { showMonitorSheet = true },
-                            monitorActive = activeTasks.isNotEmpty(),
-                            colors = colors,
-                        )
-
                         ChatInputBar(
                             isAwaitingReply = isAwaitingReply,
                             isTaskRunning = isTaskRunning,
                             inputEnabled = inputEnabled,
-                            isTaskMode = isTaskMode,
-                            onTaskModeChange = { isTaskMode = it },
-                            onSendChat = onSendChat,
-                            onSendTask = onSendTask,
+                            onSend = onSend,
                             onStopAll = onStopAllTasks,
                             onAttach = onAttach,
                             colors = colors,
-                            prefillText = prefillText,
-                            prefillIsTask = prefillIsTask,
-                            onPrefillConsumed = { prefillText = "" },
                         )
                     }
                 }
@@ -341,13 +295,7 @@ fun ChatScreen(
                     // v9: always show messages or empty state regardless of mode
                     val userMessages = messages.filter { it.role != ChatMessage.Role.SYSTEM }
                     if (userMessages.isEmpty()) {
-                        EmptyStateWithPrompts(
-                            isLocalModel = isLocalUI,
-                            onSelectPrompt = { text, isTask ->
-                                prefillText = text
-                                prefillIsTask = isTask
-                                if (isTask && isLocalUI) isTaskMode = true
-                            },
+                        ChatEmptyState(
                             colors = colors,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -369,30 +317,6 @@ fun ChatScreen(
         }
     }
 
-    // Monitor skill dialog
-    if (showMonitorSheet) {
-        MonitorDialog(
-            onDismiss = { showMonitorSheet = false },
-            onStart = { target ->
-                showMonitorSheet = false
-                activatingSkill = "monitor"
-                onStartMonitor(target)
-            },
-            colors = colors,
-        )
-    }
-
-    // Send Message skill dialog
-    if (showSendSheet) {
-        SendMessageDialog(
-            onDismiss = { showSendSheet = false },
-            onSend = { contact, app, message ->
-                showSendSheet = false
-                onSendDirectMessage(contact, app, message)
-            },
-            colors = colors,
-        )
-    }
 }
 
 // ======================== TOP BAR ========================
@@ -1024,16 +948,10 @@ private fun ChatInputBar(
     isAwaitingReply: Boolean,
     isTaskRunning: Boolean,
     inputEnabled: Boolean = true,
-    isTaskMode: Boolean,
-    onTaskModeChange: (Boolean) -> Unit,
-    onSendChat: (String) -> Unit,
-    onSendTask: (String) -> Unit,
+    onSend: (String) -> Unit,
     onStopAll: () -> Unit = {},
     onAttach: () -> Unit,
     colors: PokeclawColors,
-    prefillText: String = "",
-    prefillIsTask: Boolean = false,
-    onPrefillConsumed: () -> Unit = {},
 ) {
     var text by remember { mutableStateOf("") }
     val focusManager = LocalFocusManager.current
@@ -1088,78 +1006,19 @@ private fun ChatInputBar(
         else Toast.makeText(context, "请允许麦克风权限后使用语音输入", Toast.LENGTH_SHORT).show()
     }
 
-    // Consume prefill from prompt chips
-    LaunchedEffect(prefillText) {
-        if (prefillText.isNotEmpty()) {
-            text = prefillText
-            onTaskModeChange(prefillIsTask)
-            onPrefillConsumed()
-        }
-    }
-
-    val taskBg = colors.surface
-    val taskBorder = colors.divider
-
     Column(
         modifier = Modifier
-            .background(if (isTaskMode) taskBg else colors.surface)
+            .background(colors.surface)
             .navigationBarsPadding()
     ) {
         HorizontalDivider(
-            color = if (isTaskMode) taskBorder else colors.divider,
+            color = colors.divider,
             thickness = 1.dp,
         )
-
-        // Phone tools are loaded only when the user explicitly selects execution mode.
-        run {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 10.dp, end = 10.dp, top = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                // Chat button
-                Surface(
-                    onClick = { onTaskModeChange(false) },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (!isTaskMode) colors.accent.copy(alpha = 0.12f) else Color.Transparent,
-                    border = if (!isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.accent.copy(alpha = 0.28f)) else null,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        "对话",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (!isTaskMode) colors.accent else colors.textTertiary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 9.dp),
-                    )
-                }
-                // Task button
-                Surface(
-                    onClick = { onTaskModeChange(true) },
-                    shape = RoundedCornerShape(10.dp),
-                    color = if (isTaskMode) colors.accent.copy(alpha = 0.12f) else Color.Transparent,
-                    border = if (isTaskMode) androidx.compose.foundation.BorderStroke(1.dp, colors.accent.copy(alpha = 0.28f)) else null,
-                    modifier = Modifier.weight(1f),
-                ) {
-                    Text(
-                        "执行",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (isTaskMode) colors.accent else colors.textTertiary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(vertical = 9.dp),
-                    )
-                }
-            }
-        }
-
-        // Input bar — always visible, style changes in Task mode
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 10.dp, end = 10.dp, top = 4.dp, bottom = 8.dp),
+                .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             OutlinedTextField(
@@ -1167,8 +1026,8 @@ private fun ChatInputBar(
                 onValueChange = { text = it },
                 placeholder = {
                     Text(
-                        if (isTaskMode) "描述要让手机完成的操作..." else "输入消息...",
-                        color = if (isTaskMode) colors.accent.copy(alpha = 0.5f) else colors.textTertiary,
+                        "输入消息或需要完成的操作...",
+                        color = colors.textTertiary,
                         fontSize = 14.sp,
                     )
                 },
@@ -1177,13 +1036,13 @@ private fun ChatInputBar(
                     .heightIn(min = 40.dp, max = 100.dp),
                 shape = RoundedCornerShape(20.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = if (isTaskMode) colors.accent else colors.accent.copy(alpha = 0.4f),
-                    unfocusedBorderColor = if (isTaskMode) colors.accent.copy(alpha = 0.6f) else colors.inputBorder,
+                    focusedBorderColor = colors.accent.copy(alpha = 0.4f),
+                    unfocusedBorderColor = colors.inputBorder,
                     cursorColor = colors.accent,
                     focusedTextColor = colors.textPrimary,
                     unfocusedTextColor = colors.textPrimary,
-                    focusedContainerColor = if (isTaskMode) taskBg else Color.Transparent,
-                    unfocusedContainerColor = if (isTaskMode) taskBg else Color.Transparent,
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
                 ),
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
                 maxLines = 4,
@@ -1229,17 +1088,10 @@ private fun ChatInputBar(
                     if (isTaskRunning) {
                         onStopAll()
                     } else if (!isAwaitingReply && inputEnabled && text.isNotBlank()) {
-                        if (isTaskMode) {
-                            onSendTask(text.trim())
-                            text = ""
-                            focusManager.clearFocus()
-                            keyboardController?.hide()
-                        } else {
-                            onSendChat(text.trim())
-                            text = ""
-                            focusManager.clearFocus()
-                            keyboardController?.hide()
-                        }
+                        onSend(text.trim())
+                        text = ""
+                        focusManager.clearFocus()
+                        keyboardController?.hide()
                     }
                 },
                 modifier = Modifier
@@ -1249,7 +1101,6 @@ private fun ChatInputBar(
                     isTaskRunning -> Color(0xFFF44336)
                     isAwaitingReply -> colors.background
                     text.isBlank() -> colors.background
-                    isTaskMode -> colors.accent
                     else -> colors.userBubble
                 },
                 shape = CircleShape,
@@ -1441,318 +1292,36 @@ private fun DownloadOverlay(progress: Int, colors: PokeclawColors) {
 // ======================== EMPTY STATE ========================
 
 @Composable
-private fun EmptyStateWithPrompts(
-    isLocalModel: Boolean,
-    onSelectPrompt: (String, Boolean) -> Unit,
+private fun ChatEmptyState(
     colors: PokeclawColors,
     modifier: Modifier = Modifier,
 ) {
-    data class Prompt(val text: String, val isTask: Boolean)
-
-    // Cloud: show task examples (user can give tasks from chat)
-    // Local: show chat examples (chat only, tasks go to Workflows tab)
-    val prompts = if (!isLocalModel) {
-        listOf(
-            Prompt("What time is it in Tokyo?", false),
-            Prompt("Help me write a birthday message", false),
-            Prompt("💬 Send hi to Mom on WhatsApp", true),
-        )
-    } else {
-        listOf(
-            Prompt("Tell me a joke", false),
-            Prompt("What can you do?", false),
-            Prompt("Help me draft an email", false),
-        )
-    }
-
-    val headerText = if (!isLocalModel) "Cloud AI" else "Local AI"
-
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Spacer(Modifier.height(40.dp))
         androidx.compose.foundation.Image(
             painter = painterResource(R.drawable.pokeclaw_avatar),
-            contentDescription = "PokeClaw",
+            contentDescription = "openclaw",
             modifier = Modifier
                 .size(48.dp)
                 .clip(RoundedCornerShape(12.dp)),
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "PokeClaw",
+            "openclaw",
             fontSize = 16.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textPrimary,
         )
         Spacer(Modifier.height(3.dp))
         Text(
-            headerText,
+            "输入问题或操作，AI 会自行判断如何处理",
             fontSize = 12.sp,
-            color = colors.accent,
+            color = colors.textSecondary,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(6.dp))
-        // Hint text — Local has styled bold parts, Cloud is plain
-        if (isLocalModel) {
-            Text(
-                buildAnnotatedString {
-                    append("Chat in ")
-                    withStyle(SpanStyle(color = colors.accent, fontWeight = FontWeight.Bold)) {
-                        append("💬 Chat")
-                    }
-                    append(" mode, or switch to ")
-                    withStyle(SpanStyle(color = colors.accent, fontWeight = FontWeight.Bold)) {
-                        append("🤖 Task")
-                    }
-                    append(" to control your phone")
-                },
-                fontSize = 11.sp,
-                color = colors.textSecondary,
-                textAlign = TextAlign.Center,
-                lineHeight = 16.sp,
-                modifier = Modifier.widthIn(max = 260.dp),
-            )
-        } else {
-            Text(
-                "Chat and tasks work together \u2014 just type anything",
-                fontSize = 11.sp,
-                color = colors.textSecondary,
-                textAlign = TextAlign.Center,
-                lineHeight = 16.sp,
-                modifier = Modifier.widthIn(max = 260.dp),
-            )
-        }
-        Spacer(Modifier.height(12.dp))
-
-        // Suggested prompt chips — same style as Quick Tasks items
-        Column(
-            modifier = Modifier.padding(horizontal = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            prompts.forEach { prompt ->
-                val barAlpha = if (prompt.isTask) 1f else 0.5f
-                Surface(
-                    shape = RoundedCornerShape(9.dp),
-                    color = colors.background,
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.inputBorder),
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectPrompt(prompt.text, prompt.isTask) },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(3.dp)
-                                .height(38.dp)
-                                .background(
-                                    colors.accent.copy(alpha = barAlpha),
-                                    RoundedCornerShape(topStart = 9.dp, bottomStart = 9.dp),
-                                ),
-                        )
-                        Text(
-                            prompt.text,
-                            fontSize = 12.sp,
-                            color = colors.textSecondary,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ======================== QUICK TASKS PANEL (v9) ========================
-
-@Composable
-private fun QuickTasksPanel(
-    isLocalModel: Boolean,
-    onFillTask: (String) -> Unit,
-    onMonitorClick: () -> Unit,
-    monitorActive: Boolean,
-    colors: PokeclawColors,
-) {
-    var expanded by remember { mutableStateOf(true) }
-
-    // Cloud-only tasks at the top (multi-step, Siri/GA can't do these)
-    // Cloud-only tasks (multi-step, Siri can't do)
-    val cloudOnlyTasks = listOf(
-        "🦞 Open Reddit and search for pokeclaw",
-        "🎬 Search YouTube for funny cat fails",
-        "📦 Install Telegram from Play Store",
-        "🐦 Check what's trending on Twitter and tell me",
-        "💬 Check my latest WhatsApp chat and summarize it",
-        "📋 Copy the latest email subject and Google it",
-        "📧 Write an email saying I'll be late today",
-    )
-    // Reasoning tasks (1-2 tool calls + LLM analysis) — impressive, work on both
-    val reasoningTasks = listOf(
-        "📵 Check my notifications — anything important?",
-        "📋 Read my clipboard and explain what it says",
-        "🧹 Check my storage and apps — what can I delete?",
-        "🔔 Read my notifications and summarize",
-        "🔋 Check my battery and tell me if I need to charge",
-    )
-    // Simple deterministic tasks (1 tool, no reasoning)
-    val deterministicTasks = listOf(
-        "💬 Send hi to Mom on WhatsApp",
-        "📱 What apps do I have?",
-        "🌡️ How hot is my phone?",
-        "🔵 Is bluetooth on?",
-        "🔋 How much battery left?",
-        "📞 Call Mom",
-        "💾 How much storage do I have?",
-        "📲 What Android version am I running?",
-    )
-    // Cloud: cloud-only → reasoning → deterministic
-    // Local: reasoning first (impressive) → deterministic
-    val quickTasks = if (isLocalModel) {
-        reasoningTasks + deterministicTasks
-    } else {
-        cloudOnlyTasks + reasoningTasks + deterministicTasks
-    }
-
-    Column(
-        modifier = Modifier.background(colors.surface),
-    ) {
-        HorizontalDivider(color = colors.divider, thickness = 1.dp)
-
-        // Handle bar — ▲ Quick Tasks ▲
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = "Toggle",
-                tint = colors.accent,
-                modifier = Modifier.size(12.dp),
-            )
-            Spacer(Modifier.width(6.dp))
-            Text(
-                "Quick Task Templates",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = colors.accent,
-            )
-            Spacer(Modifier.width(6.dp))
-            Icon(
-                if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                contentDescription = "Toggle",
-                tint = colors.accent,
-                modifier = Modifier.size(12.dp),
-            )
-        }
-
-        // Collapsible content
-        if (expanded) {
-            // Quick task items — scrollable
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 280.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                quickTasks.forEach { task ->
-                    Surface(
-                        shape = RoundedCornerShape(9.dp),
-                        color = colors.background,
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, colors.inputBorder),
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onFillTask(task.substringAfter(" ")) },
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(3.dp)
-                                    .height(38.dp)
-                                    .background(colors.accent, RoundedCornerShape(topStart = 9.dp, bottomStart = 9.dp)),
-                            )
-                            Text(
-                                task,
-                                fontSize = 12.sp,
-                                color = colors.textSecondary,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Background section — always visible, NOT inside scroll
-            Column(modifier = Modifier.padding(horizontal = 12.dp)) {
-                Text(
-                    "BACKGROUND",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.textTertiary,
-                    letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
-                )
-
-                // Monitor card
-                val monitorBorderColor = if (monitorActive) colors.accent else colors.inputBorder
-                Surface(
-                    onClick = {
-                        if (!monitorActive) onMonitorClick()
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    color = colors.background,
-                    border = androidx.compose.foundation.BorderStroke(
-                        if (monitorActive) 1.dp else 0.5.dp,
-                        monitorBorderColor,
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(
-                                    colors.accent.copy(alpha = 0.12f),
-                                    RoundedCornerShape(9.dp),
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("👁️", fontSize = 15.sp)
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                if (monitorActive) "Active" else "Monitor & Auto-Reply",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary,
-                            )
-                            Text(
-                                if (monitorActive) "Monitoring active — use the top bar to stop" else "Watch messages and reply automatically",
-                                fontSize = 9.sp,
-                                color = colors.textTertiary,
-                            )
-                        }
-                        if (!monitorActive) {
-                            Text("›", color = colors.textTertiary, fontSize = 14.sp)
-                        }
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
-            } // end Background Column
-        }
     }
 }
 
