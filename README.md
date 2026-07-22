@@ -24,9 +24,9 @@ Welcome to **Zanqiwu App (PokeClaw)**, an advanced Android productivity client a
 ## 📸 Screenshots & Previews
 
 <div align="center">
-  <img src="assets/.aistudio/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="App Screenshot 1" />
+  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="App Screenshot 1" />
   &nbsp;&nbsp;
-  <img src="assets/.aistudio/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="App Screenshot 2" />
+  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="App Screenshot 2" />
 </div>
 
 ---
@@ -139,9 +139,9 @@ PokeClaw features an integrated update subscription check:
 ## 📸 界面展示与示例
 
 <div align="center">
-  <img src="assets/.aistudio/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="应用示例截图 1" />
+  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="应用示例截图 1" />
   &nbsp;&nbsp;
-  <img src="assets/.aistudio/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="应用示例截图 2" />
+  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="应用示例截图 2" />
 </div>
 
 ---
