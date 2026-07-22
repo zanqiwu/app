@@ -1,7 +1,8 @@
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
 
-
-# Zanqiwu App: PokeClaw Productivity & Automation Agent Suite
-### 智能待办与设备自动化代理套件
+# PokeClaw TodoList: Smart Productivity & Mobile Automation Agent Suite
+### 智能待办与设备自动化代理套件 (PokeClaw TodoList)
 
 [![Version](https://img.shields.io/badge/version-v1.22-blue.svg)](file:///d:/work/app/app/build.gradle.kts)
 [![API Level](https://img.shields.io/badge/Android-API%2028%2B-green.svg)](file:///d:/work/app/app/build.gradle.kts)
@@ -17,72 +18,72 @@
 
 # English Documentation
 
-Welcome to **Zanqiwu App (PokeClaw)**, an advanced Android productivity client and autonomous device automation ecosystem. This workspace combines a feature-rich, AI-augmented Todo Client (`app`) with an Accessibility Service-based Mobile Automation Agent (`pokeclaw-agent`).
+Welcome to **PokeClaw TodoList**, an advanced Android productivity workspace and autonomous mobile automation ecosystem. The repository couples a modern Jetpack Compose Todo Client (`app`) with a background Accessibility Service-based Automation Agent (`pokeclaw-agent`).
 
 ---
 
 ## 📸 Screenshots & Previews
 
 <div align="center">
-  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="App Screenshot 1" />
+  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="PokeClaw TodoList Screenshot 1" />
   &nbsp;&nbsp;
-  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="App Screenshot 2" />
+  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="PokeClaw TodoList Screenshot 2" />
 </div>
 
 ---
 
-## 1. Comprehensive Feature Breakdown
+## 1. Core Architecture & Modules
 
-The workspace is modularized into two Gradle sub-projects:
+The workspace is structured into two Gradle modules:
 
 ### 📱 `app` — Jetpack Compose Todo & AI Productivity Client
 
-1. **AI-Powered Task Breakdown & Planning**
-   * **Smart Deconstruction**: Leverages LLMs (Gemini API) to automatically parse natural language user goals into structured sub-task checklists, categories, geographic locations, and cover art generation parameters.
-   * **Weekly Work Report Generator**: Analyzes completed tasks over past periods and automatically drafts structured, professional workplace weekly summaries (`AnalysisScreen`).
-   * **Resilient Model Fallback Chain**: Built-in automatic fallback sequence (`gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite-preview` $\rightarrow$ `gemini-2.5-flash`) ensuring service uptime under high API load.
+1. **AI-Driven Goal Breakdown & Planning**
+   * **Natural Goal Parsing**: Powered by Gemini LLM integration (`GeminiManager`), converting natural language prompts into structured sub-task checklists, categories, geographic locations, and cover art parameters.
+   * **Automated Weekly Report**: Analyzes completed tasks across customized date ranges to draft structured, professional workplace weekly summaries (`AnalysisScreen`).
+   * **Multi-Tier Model Fallback Sequence**: Built-in fallback mechanism (`gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite-preview` $\rightarrow$ `gemini-2.5-flash`) ensuring high availability and seamless concurrency.
 
-2. **Baidu Map Geographic Integration**
-   * **Two-Way Coordinate Linkage**: Pins tasks onto interactive Baidu Map surfaces (`BaiduTodoMapView`, `BaiduMapPickerView`).
-   * **List-Map Synchronization Carousel**: Scrolling the task list smoothly animates and centers the map camera on the corresponding geographic marker; tapping a map pin auto-scrolls to highlight the task card.
-   * **Marker Clustering & Range Auto-Fit**: Automatically groups dense nearby task markers and fits map camera bounds.
+2. **Baidu Map Geographic Task Linkage**
+   * **Two-Way Coordinate Mapping**: Binds tasks directly to geographical coordinates (`BaiduTodoMapView`, `BaiduMapPickerView`).
+   * **Synchronized List-Map Carousel**: Scrolling through the task list smoothly animates and centers the map camera on task markers; clicking a map marker automatically highlights the task card.
+   * **Marker Clustering & Dynamic Bounds**: Automatically groups dense clusters of task pins and adjusts the map viewport.
 
-3. **Procedural Canvas Art & Audio Synthesizer**
-   * **Canvas Vector Art Covers**: AI calculates coordinate geometries to draw custom vector shapes (circles, squares, stars, triangles, line patterns) directly on the Android Canvas, saving them offline as offline task cover illustrations.
-   * **AI Songwriter & Audio Synth**: Generates chord progressions, lyrics, and synthesizes MIDI-like multi-pitch melodies via `AudioSynthPlayer`.
+3. **Canvas Vector Art Generator & Audio Synthesizer**
+   * **Procedural Canvas Covers**: Calculates vector geometry coordinates to draw custom geometric art (circles, rectangles, stars, triangles, line patterns) directly on the Android Canvas, saved as task covers offline.
+   * **AI Music & Chord Synthesizer**: Generates chord progressions, lyrics, and synthesizes MIDI-style multi-pitch melodies via `AudioSynthPlayer`.
 
-4. **Productivity & Time Management Suite**
-   * **Pomodoro Timer Service**: Integrated 25/5-minute focus timer backed by a Android Foreground Service (`PomodoroForegroundService`) with live status-bar countdown notifications and audio alerts.
-   * **Native Home Screen Widgets**: Android App Widgets (`TodoAppWidgetProvider`) enabling quick task inspection and check-off directly from the phone desktop.
-   * **Daily Rollover Tracker**: Tracks incomplete tasks across days (`DailyTodoSnapshot`) with automatic daily rollover candidate recommendations.
-   * **System Calendar & Alarm Sync**: One-click native Android Calendar and Alarm Clock integration for tasks with deadlines.
-   * **Modern Fluid Themes**: Features 5 curated color themes (Cosmic Blue, Forest Green, Sakura Pink, Aurora Cyan, Sunset Red) with Compact and Standard layout modes.
+4. **Productivity & Time Management Tools**
+   * **Foreground Pomodoro Timer**: Integrated 25/5-minute focus timer backed by a Foreground Service (`PomodoroForegroundService`) with live status-bar countdown notifications and audio prompts.
+   * **Native Home Screen Widgets**: Android App Widgets (`TodoAppWidgetProvider`) for quick task inspection and check-off directly from the Android desktop.
+   * **Daily Rollover Tracker**: Manages uncompleted tasks across days (`DailyTodoSnapshot`) with candidate recommendations.
+   * **System Calendar & Alarm Synchronization**: One-click native Android Calendar and Alarm Clock scheduling for tasks with deadlines.
+   * **Modern Fluid Themes**: Features 5 curated color themes (Cosmic Blue, Forest Green, Sakura Pink, Aurora Cyan, Sunset Red) supporting Standard and Compact UI modes.
 
 ---
 
-### 🤖 `pokeclaw-agent` — Autonomous Mobile Automation Agent Suite
+### 🤖 `pokeclaw-agent` — Autonomous Mobile Automation Agent
 
 1. **3-Tier Routing Pipeline (`PipelineRouter`)**
-   * **Tier 1: Deterministic Engine (`TaskParser`)** (0 LLM Calls, <1s latency): Uses regex matching for instant Android Intent execution (phone calls, alarms, timers, settings, URLs) and direct actions (screenshot, back, home, app launch).
-   * **Tier 1.5 / 2: Skill Workflows (`SkillRegistry`)**: Pre-configured multi-step skill workflows with parameter extraction; gracefully falls back to Tier 3 if execution fails.
-   * **Tier 2: LLM Classifier (`TaskClassifier`)**: Single short LLM call (~200-word prompt) to classify ambiguous requests.
-   * **Tier 3: Autonomous ReAct Loop (`DefaultAgentService`)**: Multi-step perception-reasoning-action loop backed by Cloud LLMs or local LiteRT (Gemma) models.
+   * **Tier 1: Deterministic Engine (`TaskParser`)** (0 LLM Calls, <1s latency): Regex-matched direct execution for Android Intents (phone calls, alarms, timers, settings, URLs) and direct actions (screenshot, back, home, app launch).
+   * **Tier 1.5 / 2: Skill Workflows (`SkillRegistry`)**: Parameterized multi-step skill workflows with graceful fallback to Tier 3 on failure.
+   * **Tier 2: LLM Classifier (`TaskClassifier`)**: Single short LLM call (~200-word prompt) to route complex or ambiguous user requests.
+   * **Tier 3: Autonomous ReAct Loop (`DefaultAgentService`)**: Multi-step perception-reasoning-action loop supporting Cloud LLMs or local LiteRT (Gemma) models.
 
-2. **Token-Efficient Perception & Device Control (`ClawAccessibilityService`)**
-   * **Low-Token Screen Layout Tree (`getScreenTree`)**: Converts raw `AccessibilityNodeInfo` hierarchies into a ultra-compact text UI tree (e.g., `[n1] "WhatsApp" tap edit (500,300)`).
-   * **Full Gesture Arsenal**: Coordinates tap, node-based tap (`tap_node`), long press, swipe, incremental scroll-to-find (`scroll_to_find`), text injection, and screenshot capture.
+2. **Token-Efficient UI Perception & Device Control (`ClawAccessibilityService`)**
+   * **Low-Token Screen Layout Tree (`getScreenTree`)**: Converts raw `AccessibilityNodeInfo` tree hierarchies into a ultra-compact text UI representation (e.g., `[n1] "WhatsApp" tap edit (500,300)`).
+   * **Complete Gesture Engine**: Coordinates tap, node-based tap (`tap_node`), long press, swipe, incremental scroll-to-find (`scroll_to_find`), text injection, and screenshot capture.
 
-3. **Performance & Token Optimization Innovations**
-   * **Opt-2 Screen Pre-warming**: Automatically attaches current layout hierarchy to the initial LLM prompt for task-oriented queries, saving 1 reasoning round.
-   * **Opt-3 Auto-Attach Screen**: Automatically captures layout state and text diffs 500ms after executing an action tool, saving 3–5 seconds per turn.
-   * **Dynamic History Compression**: Retains only the latest layout tree globally while summarizing legacy tool responses, saving up to 50% in input tokens.
+3. **Performance & Token Optimization**
+   * **Opt-2 Screen Pre-Warming**: Automatically attaches layout hierarchy to the initial LLM prompt for task-oriented queries, saving 1 reasoning turn.
+   * **Opt-3 Auto-Attach Screen**: Automatically captures layout hierarchy and text diffs 500ms after executing an action tool, saving 3–5 seconds per turn.
+   * **Dynamic History Compression**: Retains only the latest layout tree while compacting legacy tool outputs, saving up to 50% in input tokens.
 
-4. **Safety, Reliability & Guard System**
+4. **Safety Guards & Loop Detection**
    * **5-Signal 3-Level StuckDetector**: Monitors 5 loop signals (same action, unchanged screen, zero text diff, high repetition, repeated errors) with a 3-level escalation mechanism (`HINT` $\rightarrow$ `STRATEGY_SWITCH` $\rightarrow$ `AUTO_KILL`).
    * **Semantic Guard Interceptors**: `DirectDeviceDataGuard`, `InAppSearchGuard`, and `EmailComposeGuard` block LLM text hallucination and prevent premature task termination.
    * **Token Budget Monitor (`TaskBudget`)**: Tracks token usage and estimated cost with soft warnings and hard stops.
 
-5. **Knowledge Vault & Multi-Channel Support**
+5. **Knowledge Vault & Multi-Channel Ecosystem**
    * **Local Markdown Vault (`KBManager`)**: Provides `kb_read`, `kb_write`, `kb_search`, `kb_append`, and `kb_add_todo` for local MD note and Todo management.
    * **Multi-Channel Integration (`ChannelManager`)**: Supports message reception and status updates across external channels (WeChat, Telegram, Lark, etc.).
    * **Android TV Integration**: Specialized D-pad navigation, volume, menu, and power key tools for TV devices.
@@ -99,13 +100,13 @@ The workspace is modularized into two Gradle sub-projects:
 * **Target SDK**: `36` (Android 15+)
 
 ### 🔔 Update Subscriptions
-PokeClaw features an integrated update subscription check:
+PokeClaw TodoList features integrated update checking:
 * **Automatic Checks**: Checks daily in the background via GitHub API (`https://api.github.com/repos/agents-io/PokeClaw/releases/latest`).
 * **Manual Subscriptions**: Click **Watch** on our GitHub Repository page and select **Custom -> Releases** to receive release alerts.
 
 ---
 
-## 3. Changelog & Highlights
+## 3. Changelog & Key Highlights
 
 ### 🚀 v1.22 (Current Version)
 * **Fallback Model Chain**: Implemented fallback configurations in `GeminiManager` (`gemini-3.5-flash` $\rightarrow$ `gemini-3.1-flash-lite-preview` $\rightarrow$ `gemini-2.5-flash`).
@@ -132,23 +133,23 @@ PokeClaw features an integrated update subscription check:
 
 # 中文说明文档
 
-欢迎使用 **Zanqiwu App (PokeClaw)**。本项目是一个结合了现代待办规划（Todo Client）与自主无障碍控制代理（Accessibility Automation Agent）的智能 Android 效率应用套件。
+欢迎使用 **PokeClaw TodoList**。本项目是一个结合了现代待办规划（Todo Client）与自主无障碍控制代理（Accessibility Automation Agent）的智能 Android 效率应用套件。
 
 ---
 
 ## 📸 界面展示与示例
 
 <div align="center">
-  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="应用示例截图 1" />
+  <img src="assets/images/img_v3_0213r_4c1d462b-a78b-4c3f-b19b-824139afa9ag.jpg" width="45%" alt="PokeClaw TodoList 示例截图 1" />
   &nbsp;&nbsp;
-  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="应用示例截图 2" />
+  <img src="assets/images/img_v3_0213r_98faedbc-e30d-4e10-b3e0-b81c6077c39g.jpg" width="45%" alt="PokeClaw TodoList 示例截图 2" />
 </div>
 
 ---
 
 ## 1. 详细功能特性介绍
 
-整个项目分为两个核心模块：
+项目通过 Gradle 模块化拆分为两大核心部分：
 
 ### 📱 `app` — Jetpack Compose 待办与 AI 效率客户端
 
@@ -214,7 +215,7 @@ PokeClaw features an integrated update subscription check:
 * **目标 API**: `36` (Android 15+)
 
 ### 🔔 更新订阅与获取
-PokeClaw 内部集成了自动更新监测：
+PokeClaw TodoList 内部集成了自动更新监测：
 * **自动检查**：每天会在后台静默访问 GitHub Releases 接口 (`https://api.github.com/repos/agents-io/PokeClaw/releases/latest`)，若有新版本弹窗提示。
 * **手动订阅**：建议在 GitHub 项目主页点击 **Watch** 并勾选 **Custom -> Releases** 选项。
 
