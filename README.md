@@ -4,7 +4,8 @@
 # PokeClaw TodoList: Smart Productivity & Mobile Automation Agent Suite
 ### 智能待办与设备自动化代理套件 (PokeClaw TodoList)
 
-[![Version](https://img.shields.io/badge/version-v1.22-blue.svg)](file:///d:/work/app/app/build.gradle.kts)
+[![Version](https://img.shields.io/badge/version-v1.22-blue.svg)](https://github.com/zanqiwu/TodoList/releases/tag/v1.22)
+[![APK Download](https://img.shields.io/badge/Download-TodoList.apk-brightgreen.svg?logo=android)](https://github.com/zanqiwu/TodoList/releases/download/v1.22/TodoList.apk)
 [![API Level](https://img.shields.io/badge/Android-API%2028%2B-green.svg)](file:///d:/work/app/app/build.gradle.kts)
 [![License](https://img.shields.io/badge/License-Apache%202.0-orange.svg)](file:///d:/work/app/pokeclaw-agent/LICENSE)
 
@@ -18,7 +19,15 @@
 
 # English Documentation
 
-Welcome to **PokeClaw TodoList**, an advanced Android productivity workspace and autonomous mobile automation ecosystem. The repository couples a modern Jetpack Compose Todo Client (`app`) with a background Accessibility Service-based Automation Agent (`pokeclaw-agent`).
+Welcome to **PokeClaw TodoList**, an advanced Android productivity client and autonomous mobile automation ecosystem. This workspace combines a Jetpack Compose Todo Client (`app`) with a background Accessibility Service-based Automation Agent (`pokeclaw-agent`).
+
+---
+
+## 📦 Direct APK Download & Release
+
+* **Latest Release Version**: `v1.22`
+* **Direct APK Download**: [⬇️ Download TodoList.apk (v1.22)](https://github.com/zanqiwu/TodoList/releases/download/v1.22/TodoList.apk)
+* **GitHub Release Page**: [🏷️ View Release Notes & SHA256 Checksum](https://github.com/zanqiwu/TodoList/releases/tag/v1.22)
 
 ---
 
@@ -101,7 +110,7 @@ The workspace is structured into two Gradle modules:
 
 ### 🔔 Update Subscriptions
 PokeClaw TodoList features integrated update checking:
-* **Automatic Checks**: Checks daily in the background via GitHub API (`https://api.github.com/repos/agents-io/PokeClaw/releases/latest`).
+* **Automatic Checks**: Checks daily in the background via GitHub API (`https://api.github.com/repos/zanqiwu/TodoList/releases/latest`).
 * **Manual Subscriptions**: Click **Watch** on our GitHub Repository page and select **Custom -> Releases** to receive release alerts.
 
 ---
@@ -134,6 +143,14 @@ PokeClaw TodoList features integrated update checking:
 # 中文说明文档
 
 欢迎使用 **PokeClaw TodoList**。本项目是一个结合了现代待办规划（Todo Client）与自主无障碍控制代理（Accessibility Automation Agent）的智能 Android 效率应用套件。
+
+---
+
+## 📦 编译安装包直链下载 (Release)
+
+* **最新发布版本**: `v1.22`
+* **安装包直链下载**: [⬇️ 点击下载 TodoList.apk (v1.22)](https://github.com/zanqiwu/TodoList/releases/download/v1.22/TodoList.apk)
+* **GitHub Release 页面**: [🏷️ 查看 Release 发布日志与 SHA256 校验和](https://github.com/zanqiwu/TodoList/releases/tag/v1.22)
 
 ---
 
@@ -216,7 +233,7 @@ PokeClaw TodoList features integrated update checking:
 
 ### 🔔 更新订阅与获取
 PokeClaw TodoList 内部集成了自动更新监测：
-* **自动检查**：每天会在后台静默访问 GitHub Releases 接口 (`https://api.github.com/repos/agents-io/PokeClaw/releases/latest`)，若有新版本弹窗提示。
+* **自动检查**：每天会在后台静默访问 GitHub Releases 接口 (`https://api.github.com/repos/zanqiwu/TodoList/releases/latest`)，若有新版本弹窗提示。
 * **手动订阅**：建议在 GitHub 项目主页点击 **Watch** 并勾选 **Custom -> Releases** 选项。
 
 ---
