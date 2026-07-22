@@ -2,5 +2,7 @@
   "name": "待办清单",
   "description": "一个简洁、支持分类标签的每日待办事项管理应用",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
